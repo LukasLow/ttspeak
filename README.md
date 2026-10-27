@@ -6,16 +6,16 @@
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple&logoColor=white)](#requirements)
 
 **Ollama-style local text-to-speech for Apple Silicon.** `ttspeak` is a small,
-dependency-free CLI that manages [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)
-models and voices, runs them offline through
-[MLX Audio](https://github.com/Blaizzy/mlx-audio), and installs declaratively with
-Nix / Home Manager.
+dependency-free CLI that manages [Voxtral](https://huggingface.co/mistralai/Voxtral-4B-TTS-2603)
+and [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) models and voices, runs them
+offline through [MLX Audio](https://github.com/Blaizzy/mlx-audio), and installs
+declaratively with Nix / Home Manager. Live streaming and MP3 output are built in.
 
 ```console
 $ ttspeak "Guten Morgen, wie geht es dir?"
-$ ttspeak pull qwen3:0.6b
+$ ttspeak pull voxtral:4b
 $ ttspeak list
-$ ttspeak rm qwen3:0.6b
+$ ttspeak rm voxtral:4b
 ```
 
 It is the missing `pull` / `list` / `rm` / `run` workflow for local TTS on macOS:
@@ -27,22 +27,25 @@ removed without touching the installed software. Speech synthesis runs with
 
 - **Ollama-like UX for TTS.** `ttspeak "Text"`, `pull`, `list`, `show`, `rm`,
   `prune`, `run` — familiar commands instead of Python snippets.
-- **Local-first on Apple Silicon.** Qwen3-TTS through MLX Audio, optimized for
-  M-series unified memory. No API key, no account, no upload.
+- **Local-first on Apple Silicon.** Voxtral and Qwen3-TTS through MLX Audio,
+  optimized for M-series unified memory. No API key, no account, no upload.
+- **Live audio by default.** Without `-o`, audio is streamed to the speakers while
+  it is being generated. With `-o`, you get a finished WAV or MP3 file.
 - **Declarative Nix / Home Manager.** Install the CLI, runtime, models and cloned
   voices from one configuration; `onActivation.cleanup = "zap"` removes everything
   that is no longer declared — the same idea as `homebrew.onActivation.cleanup`.
 - **Small Nix package.** The CLI is pure Python standard library. `mlx-audio`
   lives in an isolated runtime venv, so the Nix build stays hermetic and fast.
-- **Model and voice management.** Five Qwen3-TTS variants, nine preset speakers,
-  ten languages, emotion/style instructions and cloned voice profiles.
+- **Model and voice management.** Voxtral 4B with 20 voices and nine languages,
+  five Qwen3-TTS variants, emotion/style instructions and cloned voice profiles.
 
 ## Requirements
 
 - macOS on Apple Silicon (M1/M2/M3/M4/M5) for MLX synthesis.
 - Nix with flakes and Home Manager (recommended), or Python 3.10+ for a manual
   install.
-- ~2 GB disk for `qwen3:0.6b`, ~3.1 GB for the 1.7B variants.
+- ~2.5 GB disk for `voxtral:4b`, ~2 GB for `qwen3:0.6b`.
+- `ffmpeg` for MP3/FLAC/OGG/Opus/M4A output (the Home Manager module installs it).
 
 The `mock` engine works everywhere and is used by the test suite; Linux users can
 develop and test the CLI, but real speech needs Apple Silicon.
@@ -77,7 +80,7 @@ The examples below match a nix-darwin setup with `home-manager.sharedModules`
 ```nix
 # programs/tools/ttspeak.nix
 { inputs, ... }: {
-  # === Home-Manager: lokale Sprachausgabe (Qwen3-TTS via MLX) ===
+  # === Home Manager: local speech output (Voxtral + Qwen3-TTS via MLX) ===
   home-manager.sharedModules = [
     {
       imports = [ inputs.ttspeak.homeManagerModules.default ];
@@ -88,15 +91,15 @@ The examples below match a nix-darwin setup with `home-manager.sharedModules`
         # Declarative defaults. `ttspeak config set ...` can override them at
         # runtime; the user config has the final say.
         settings = {
-          model = "qwen3:0.6b";
-          voice = "Serena";
+          model = "voxtral:4b";
+          voice = "de_female";
           language = "German";
           speed = 1.0;
         };
 
         # Installed on switch (idempotent, only when missing).
         models = [
-          "qwen3:0.6b"
+          "voxtral:4b"
           "qwen3:0.6b-base"
         ];
 
@@ -159,6 +162,7 @@ the single source of truth. Network failures only warn by default; set
 | `programs.ttspeak.voices.<name>` | `{}` | Cloned voice profiles (`audio`, `text`, `model`). |
 | `programs.ttspeak.runtime.enable` | `true` | Create the MLX runtime if missing. |
 | `programs.ttspeak.runtime.version` | `null` | Pin an `mlx-audio` version. |
+| `programs.ttspeak.ffmpeg` | `true` | Install ffmpeg for MP3/FLAC/OGG/Opus/M4A output. |
 | `programs.ttspeak.onActivation.cleanup` | `"none"` | `"none"` or `"zap"` (remove undeclared models/voices). |
 | `programs.ttspeak.onActivation.failOnError` | `false` | Fail the switch on pull/runtime errors. |
 
@@ -166,7 +170,7 @@ the single source of truth. Network failures only warn by default; set
 
 ```console
 $ nix run github:LukasLow/ttspeak -- runtime install
-$ nix run github:LukasLow/ttspeak -- pull qwen3:0.6b
+$ nix run github:LukasLow/ttspeak -- pull voxtral:4b
 $ nix run github:LukasLow/ttspeak -- "Hallo, das ist ein lokaler TTS-Test."
 ```
 
@@ -175,26 +179,27 @@ For permanent use, install the CLI into a profile:
 ```console
 $ nix profile install github:LukasLow/ttspeak
 $ ttspeak runtime install
-$ ttspeak pull qwen3:0.6b
-$ ttspeak "Hallo, das ist ein lokaler TTS-Test."
+$ ttspeak pull voxtral:4b
+$ ttspeak "Hallo, das ist ein lokaler TTS-Test."       # live streaming
+$ ttspeak "Hallo" -o hallo.mp3 --no-play               # finished MP3 file
 ```
 
 ## Commands
 
 ```console
-ttspeak "Text" [flags]                 # speak
-ttspeak run qwen3:0.6b "Text"          # explicit model
-ttspeak pull qwen3:1.7b                # download weights
-ttspeak list                           # installed models
-ttspeak search qwen                    # registry
-ttspeak show qwen3:0.6b                # details, voices, languages
-ttspeak rm qwen3:1.7b                  # remove weights (asks)
-ttspeak prune --keep qwen3:0.6b --yes  # remove everything else
-ttspeak voices                         # preset + cloned voices
+ttspeak "Text" [flags]                  # speak (live streaming by default)
+ttspeak run voxtral:4b "Text"           # explicit model
+ttspeak pull voxtral:4b                 # download weights
+ttspeak list                            # installed models
+ttspeak search voxtral                 # registry
+ttspeak show voxtral:4b                 # details, voices, languages
+ttspeak rm voxtral:4b                   # remove weights (asks)
+ttspeak prune --keep voxtral:4b --yes   # remove everything else
+ttspeak voices                          # preset + cloned voices
 ttspeak voice add NAME --audio ref.wav --text "transcript" --model qwen3:0.6b-base
 ttspeak voice rm NAME
-ttspeak voice prune --keep NAME --yes       # remove undeclared profiles
-ttspeak config set voice Ryan
+ttspeak voice prune --keep NAME --yes   # remove undeclared profiles
+ttspeak config set voice de_male
 ttspeak config list
 ttspeak runtime install
 ttspeak runtime status
@@ -205,52 +210,62 @@ ttspeak doctor
 
 | Flag | Meaning |
 |---|---|
-| `-m, --model ID` | Model id. |
-| `--voice NAME` | Preset speaker or cloned profile (`@name` forces profile lookup). |
-| `--emotion NAME` | `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`. |
-| `--instruct TEXT` | Free-form style instruction, combined with `--emotion`. |
-| `--language LANG` | `de`/`German`, `en`/`English`, `fr`, `es`, `it`, `pt`, `ru`, `ja`, `ko`, `zh`. |
-| `--speed FLOAT` | `0.5` … `2.0`. |
-| `-o, --output FILE.wav` | Save audio (default: timestamped file under the data root). |
-| `--play` / `--no-play` | Playback (default: on). |
+| `-m, --model ID` | Model id (default: `voxtral:4b`). |
+| `--voice NAME` | Preset voice or cloned profile (`@name` forces profile lookup). |
+| `--emotion NAME` | Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`. |
+| `--instruct TEXT` | Qwen3 only: free-form style instruction, combined with `--emotion`. |
+| `--language LANG` | `de`/`German`, `en`/`English`, `fr`, `es`, `it`, `pt`, `nl`, `ar`, `hi` (model-dependent). |
+| `--speed FLOAT` | `0.5` … `2.0` (model-dependent). |
+| `-o, --output FILE` | Write a file instead of streaming. Formats: WAV, MP3, FLAC, OGG, Opus, M4A. |
+| `--play` / `--no-play` | Playback (default: on). Without `-o`, playback is live streaming. |
 | `--engine mlx\|mock` | Backend. `mock` writes a tone without MLX. |
 | `--json` | Machine-readable result. |
 
 Examples:
 
 ```console
-ttspeak "Das ist unglaublich!" --emotion excited
-ttspeak "Willkommen zurück." --voice Ryan --language de -o willkommen.wav
+ttspeak "Das ist unglaublich!" --emotion excited          # Qwen3 model
+ttspeak "Willkommen zurück." --voice de_female -o willkommen.wav
 ttspeak "Bitte langsam." --speed 0.85 --instruct "ruhig und warm"
 ttspeak "Hallo" --voice @lukas
+ttspeak "Langer Text ..."                                 # streams live, no file
+ttspeak "Langer Text ..." -o lang.mp3 --no-play            # non-streaming MP3
 ```
 
-The default output goes to `~/Library/Application Support/ttspeak/output/` on macOS.
-`afplay` is used for playback; if no player is found the file is kept.
+Without `-o`, audio is streamed to the speakers as it is generated. With `-o`, the
+file is written completely first (no streaming). `--no-play` without `-o` writes a
+timestamped WAV under `~/Library/Application Support/ttspeak/output/` on macOS.
+`afplay` is used for file playback; if no player is found the file is kept.
 
 ## Models
 
-| ID | Size (8-bit) | Purpose |
+| ID | Size | Purpose |
 |---|---|---|
-| `qwen3:0.6b` | ~2.0 GB | Default. Preset voices + emotion. |
-| `qwen3:1.7b` | ~3.1 GB | Better emotion control. |
-| `qwen3:0.6b-base` | ~2.0 GB | Voice cloning. |
+| `voxtral:4b` | ~2.5 GB | **Default.** Voxtral 4B TTS, 4-bit; 20 voices, 9 languages. |
+| `qwen3:0.6b` | ~2.0 GB | Qwen3-TTS preset voices + emotion control. |
+| `qwen3:1.7b` | ~3.1 GB | Qwen3-TTS with better emotion control. |
+| `qwen3:0.6b-base` | ~2.0 GB | Qwen3-TTS voice cloning. |
 | `qwen3:1.7b-base` | ~3.1 GB | Higher-quality cloning. |
 | `qwen3:1.7b-design` | ~3.1 GB | Design a voice from a text description. |
 
-Preset speakers: `Vivian`, `Serena`, `Uncle_Fu`, `Dylan`, `Eric`, `Ryan`, `Aiden`,
-`Ono_Anna`, `Sohee`. Languages: Chinese, English, Japanese, Korean, German, French,
-Russian, Portuguese, Spanish, Italian.
+Voxtral voices: `de_female`, `de_male`, `casual_female`, `casual_male`,
+`cheerful_female`, `neutral_female`, `neutral_male`, `fr_female`, `fr_male`,
+`es_female`, `es_male`, `it_female`, `it_male`, `pt_female`, `pt_male`,
+`nl_female`, `nl_male`, `ar_male`, `hi_female`, `hi_male`.
 
-`qwen3` is an alias for `qwen3:0.6b`. Full Hugging Face repo ids are accepted too.
+Qwen3 speakers: `Vivian`, `Serena`, `Uncle_Fu`, `Dylan`, `Eric`, `Ryan`, `Aiden`,
+`Ono_Anna`, `Sohee`.
+
+`voxtral` is an alias for `voxtral:4b`, `qwen3` for `qwen3:0.6b`. Full Hugging
+Face repo ids are accepted too.
 
 ### German text-to-speech, offline
 
-German is a first-class synthesis language: use `--language de` (or
-`language = "German"` in Home Manager). All Qwen3-TTS preset voices are
-multilingual; `Serena` (warm female), `Ryan` (dynamic male) and `Vivian` (bright
-female) are good starting points for German. Voice cloning also works with a
-German reference recording and its exact transcript.
+German is a first-class synthesis language. Voxtral ships dedicated German voices:
+`de_female` is the default, `de_male` is also available. Qwen3-TTS preset voices
+are multilingual as well. Use `--language de` (or `language = "German"` in Home
+Manager). Voice cloning works with a German reference recording and its exact
+transcript.
 
 German sentences in this README are example *input text*, not documentation
 language; the repository documentation and comments are English.
@@ -263,8 +278,9 @@ $ ttspeak voice add lukas --audio ~/stimme.wav --text "Der exakte Text der Aufna
 $ ttspeak "Das ist meine geklonte Stimme." --voice lukas
 ```
 
-Use a clean 5–15 second WAV and the exact transcript. The profile stores a copy of the
-reference audio plus the transcript under the data root; `ttspeak voice rm lukas`
+Voice cloning is a Qwen3-TTS Base feature; Voxtral uses its 20 preset voices.
+Use a clean 5–15 second WAV and the exact transcript. The profile stores a copy of
+the reference audio plus the transcript under the data root; `ttspeak voice rm lukas`
 removes it without touching the base model. In Home Manager, declare the same profile
 under `programs.ttspeak.voices` so it is recreated reproducibly.
 
@@ -307,14 +323,19 @@ ttspeak (stdlib-only Python CLI, installed by Nix)
    ├─ model store: Hugging Face API + resumable downloads + SHA-256 checks
    ├─ config / voice profiles
    └─ mlx engine ── subprocess ──> isolated runtime Python
-                                     └─ mlx-audio + Qwen3-TTS (local weights)
+                                     └─ mlx-audio[tts] + Voxtral/Qwen3 (local weights)
 ```
 
-The CLI has no Python dependencies. `mlx-audio`, MLX and their transitive dependencies
-live in a runtime venv at `<data root>/runtime/venv`, created by
-`ttspeak runtime install` (or by Home Manager). Synthesis runs with `HF_HUB_OFFLINE=1`;
-all weights are loaded from the local model directory, so no text or audio leaves the
-machine.
+The CLI has no Python dependencies. `mlx-audio[tts]` (including
+`mistral-common[audio]` for Voxtral), MLX and their transitive dependencies live in
+a runtime venv at `<data root>/runtime/venv`, created by `ttspeak runtime install`
+(or by Home Manager). Synthesis runs with `HF_HUB_OFFLINE=1`; all weights are loaded
+from the local model directory, so no text or audio leaves the machine.
+
+Without `-o`, the worker generates with `stream=True` and writes chunks to the
+default CoreAudio device via `sounddevice`; the first audio arrives before the text
+is fully processed. With `-o`, generation is non-streaming and the finished WAV is
+optionally transcoded with ffmpeg.
 
 `pull` uses the Hugging Face REST API (`?blobs=true`), resumes partial downloads, checks
 file sizes and validates SHA-256 for LFS files before atomically renaming the model
@@ -340,12 +361,17 @@ $ nix run .# -- "Hallo" --engine mock --no-play -o /tmp/hallo.wav
 ## Limitations
 
 - MLX synthesis only on macOS Apple Silicon.
-- WAV output only in v0.1 (MP3/FLAC would need ffmpeg).
-- No streaming, no HTTP server, no non-Qwen engines.
-- Emotion/style instructions are model-dependent; `--emotion` is a mapping to Qwen3
-  style instructions, not a guaranteed deterministic control.
+- Non-WAV output requires `ffmpeg` (installed by the Home Manager module by default).
+- Live streaming is only used when no `-o` is given; file output is deliberately
+  non-streaming.
+- Emotion/style instructions are model-dependent and available on Qwen3-TTS;
+  Voxtral uses its preset voices instead.
+- No HTTP server, no non-MLX engines.
 - The registry is pinned in this repository; updating it ships with a new release.
 
 ## License
 
-MIT
+The **ttspeak code** is MIT licensed.
+
+Model weights have their own licenses: Qwen3-TTS is Apache-2.0; **Voxtral TTS is
+CC-BY-NC-4.0 (non-commercial use)**. Check the model card before commercial use.

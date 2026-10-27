@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, voices
+from . import audio, config, paths, voices
 from .constants import compose_instruct, normalize_language
 from .engines.base import SynthesisRequest, SynthesisResult
 from .engines.mock import MockEngine
@@ -15,6 +16,7 @@ from .errors import UsageError, VoiceError
 from .registry import (
     METHOD_CLONE,
     METHOD_CUSTOM_VOICE,
+    METHOD_PRESET_VOICE,
     METHOD_VOICE_DESIGN,
     ModelSpec,
     resolve_model,
@@ -49,10 +51,11 @@ class SpeakResult:
     instruct: str | None = None
     language: str = "German"
     speed: float = 1.0
+    format: str = "wav"
     warnings: list[str] = field(default_factory=list)
 
     @property
-    def output(self) -> Path:
+    def output(self) -> Path | None:
         return self.result.output
 
 
@@ -97,7 +100,7 @@ def _resolve_model_and_voice(
         if profile is not None:
             spec = resolve_model(profile.model)
         else:
-            raise UsageError("No model configured. Set one with: ttspeak config set model qwen3:0.6b")
+            raise UsageError("No model configured. Set one with: ttspeak config set model voxtral:4b")
     else:
         spec = resolve_model(model_value)
 
@@ -106,7 +109,7 @@ def _resolve_model_and_voice(
             raise VoiceError(
                 f"Voice '{profile.name}' is a cloned profile and needs a Base model, "
                 f"but {spec.id} uses {spec.method}. "
-                "Omit -m or use -m qwen3:0.6b-base."
+                "Omit -m or use a Base model such as qwen3:0.6b-base."
             )
         if not profile.audio.is_file():
             raise VoiceError(f"Reference audio for '{profile.name}' is missing: {profile.audio}")
@@ -114,7 +117,7 @@ def _resolve_model_and_voice(
             raise VoiceError("Cloned voices require a Base model.")
         return spec, profile, None, None
 
-    if spec.method == METHOD_CUSTOM_VOICE:
+    if spec.method in {METHOD_CUSTOM_VOICE, METHOD_PRESET_VOICE}:
         if not voice_value:
             voice_value = spec.default_voice or (spec.voices[0] if spec.voices else None)
         if not voice_value:
@@ -143,18 +146,30 @@ def _resolve_model_and_voice(
     raise UsageError(f"Unsupported model method: {spec.method}")
 
 
-def _resolve_output(raw: str | None) -> Path:
-    if not raw:
-        output = default_output_path()
+def _resolve_output(
+    raw: str | None,
+    *,
+    play: bool,
+    engine_name: str,
+) -> tuple[Path | None, str]:
+    if raw:
+        if raw.endswith(("/", os.sep)):
+            raise UsageError(f"--output must be a file, not a directory: {raw}")
+        output = audio.normalize_output(Path(raw).expanduser())
+        if output.exists() and output.is_dir():
+            raise UsageError(f"--output must be a file, not a directory: {output}")
+        fmt = audio.output_format(output)
+        audio.require_encoder(fmt)
         output.parent.mkdir(parents=True, exist_ok=True)
-        return output
-    output = Path(raw).expanduser()
-    if output.exists() and output.is_dir():
-        raise UsageError(f"--output must be a file, not a directory: {output}")
-    if output.suffix.lower() != ".wav":
-        raise UsageError("v0.1 writes WAV only; use an output name ending in .wav.")
+        return output, fmt
+
+    # No -o: live streaming when the MLX worker can play audio itself.
+    if play and engine_name == "mlx":
+        return None, "wav"
+
+    output = default_output_path()
     output.parent.mkdir(parents=True, exist_ok=True)
-    return output
+    return output, "wav"
 
 
 def _engine_name(raw: str | None) -> str:
@@ -178,21 +193,39 @@ def speak(options: SpeakOptions) -> SpeakResult:
     )
     speed = float(settings.get("speed") or 1.0)
     play = bool(settings.get("play", True))
-    output = _resolve_output(options.output)
     engine_name = _engine_name(options.engine)
+    output, fmt = _resolve_output(options.output, play=play, engine_name=engine_name)
+    stream = output is None
 
     warnings: list[str] = []
     if spec.method == METHOD_CLONE and instruct:
         warnings.append("Style instructions on cloned voices are model-dependent and may be ignored.")
+    if spec.method == METHOD_PRESET_VOICE and instruct:
+        warnings.append(
+            f"{spec.id} uses voice presets; --emotion/--instruct are ignored. "
+            "Choose a voice such as de_female or de_male."
+        )
+    if spec.languages and language not in spec.languages:
+        raise UsageError(
+            f"{spec.id} does not support {language}. "
+            f"Supported: {', '.join(spec.languages)}."
+        )
     if spec.method == METHOD_VOICE_DESIGN and not instruct:
         raise UsageError(
             f"Model {spec.id} needs a voice description. Pass --instruct \"...\" "
             "or --emotion."
         )
 
+    temp_wav: Path | None = None
+    worker_output = output
+    if output is not None and fmt != "wav":
+        paths.tmp_dir().mkdir(parents=True, exist_ok=True)
+        temp_wav = paths.tmp_dir() / f"ttspeak-{uuid.uuid4().hex}.wav"
+        worker_output = temp_wav
+
     request = SynthesisRequest(
         text=text,
-        output=output,
+        output=worker_output,
         method=spec.method,
         speaker=speaker,
         language=language,
@@ -200,18 +233,34 @@ def speak(options: SpeakOptions) -> SpeakResult:
         speed=speed,
         ref_audio=profile.audio if profile else None,
         ref_text=profile.ref_text if profile else None,
+        stream=stream,
     )
 
-    if engine_name == "mock":
-        result = MockEngine().synthesize(request)
-    else:
-        installed = require_installed(spec.id)
-        request.model_path = installed.path
-        from .engines.mlx import MlxEngine
+    try:
+        if engine_name == "mock":
+            result = MockEngine().synthesize(request)
+        else:
+            installed = require_installed(spec.id)
+            request.model_path = installed.path
+            from .engines.mlx import MlxEngine
 
-        result = MlxEngine().synthesize(request)
+            result = MlxEngine().synthesize(request)
 
-    if play:
+        if temp_wav is not None:
+            assert output is not None
+            audio.transcode(temp_wav, output, fmt)
+            result = SynthesisResult(
+                output=output,
+                duration=result.duration,
+                sample_rate=result.sample_rate,
+                chunks=result.chunks,
+                streamed=False,
+            )
+    finally:
+        if temp_wav is not None:
+            temp_wav.unlink(missing_ok=True)
+
+    if play and not result.streamed and result.output is not None:
         play_audio(result.output)
 
     return SpeakResult(
@@ -223,6 +272,7 @@ def speak(options: SpeakOptions) -> SpeakResult:
         instruct=instruct,
         language=language,
         speed=speed,
+        format=fmt,
         warnings=warnings,
     )
 
@@ -245,4 +295,7 @@ def print_result(result: SpeakResult, *, quiet: bool = False) -> None:
         print(f"Model:    {result.spec.id} ({result.engine})")
         print(f"Voice:    {voice_label(result)}")
         print(f"Language: {result.language}  Speed: {result.speed:g}")
-    print(f"Wrote {result.output} ({result.result.duration:.2f}s)")
+    if result.result.streamed:
+        print(f"Played live ({result.result.duration:.2f}s, no file written).")
+    else:
+        print(f"Wrote {result.output} ({result.result.duration:.2f}s)")

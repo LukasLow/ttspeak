@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ttspeak"
 version = "0.1.0"
-description = "Ollama-style local text-to-speech for Apple Silicon (Qwen3-TTS via MLX Audio)"
+description = "Ollama-style local text-to-speech for Apple Silicon (Voxtral + Qwen3-TTS via MLX Audio)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -15,6 +15,8 @@ keywords = [
   "tts",
   "text-to-speech",
   "speech-synthesis",
+  "voxtral",
+  "voxtral-tts",
   "qwen3-tts",
   "mlx",
   "mlx-audio",
@@ -27,6 +29,8 @@ keywords = [
   "offline",
   "local-first",
   "voice-cloning",
+  "streaming",
+  "mp3",
 ]
 classifiers = [
   "Environment :: Console",

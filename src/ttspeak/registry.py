@@ -13,12 +13,14 @@ from .errors import ModelNotFound
 
 METHOD_CUSTOM_VOICE = "custom_voice"
 METHOD_VOICE_DESIGN = "voice_design"
+METHOD_PRESET_VOICE = "preset_voice"
 METHOD_CLONE = "clone"
-METHODS = (METHOD_CUSTOM_VOICE, METHOD_VOICE_DESIGN, METHOD_CLONE)
+METHODS = (METHOD_CUSTOM_VOICE, METHOD_VOICE_DESIGN, METHOD_PRESET_VOICE, METHOD_CLONE)
 
 METHOD_LABELS = {
     METHOD_CUSTOM_VOICE: "preset voices + emotion instructions",
     METHOD_VOICE_DESIGN: "voice designed from a text description",
+    METHOD_PRESET_VOICE: "preset voices (multilingual TTS)",
     METHOD_CLONE: "voice cloning from reference audio",
 }
 
@@ -122,6 +124,8 @@ def resolve_model(query: str, registry: dict[str, ModelSpec] | None = None) -> M
         return models[value]
     if value == "qwen3" and "qwen3:0.6b" in models:
         return models["qwen3:0.6b"]
+    if value == "voxtral" and "voxtral:4b" in models:
+        return models["voxtral:4b"]
     for spec in models.values():
         if value == spec.repo:
             return spec

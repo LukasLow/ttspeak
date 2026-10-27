@@ -47,14 +47,14 @@ Usage:
   ttspeak version
 
 Synthesis flags:
-  -m, --model ID       model id (default: config / qwen3:0.6b)
+  -m, --model ID       model id (default: config / voxtral:4b)
       --voice NAME     preset voice or cloned profile
       --emotion NAME   neutral|happy|sad|angry|excited|calm|serious|whisper
       --instruct TEXT  free-form style instruction
       --language LANG  de|en|fr|es|it|pt|ru|ja|ko|zh or full name
       --speed FLOAT    0.5 .. 2.0
-  -o, --output FILE    write WAV to FILE
-      --play/--no-play play audio (default: on)
+  -o, --output FILE    write a file (wav, mp3, flac, ogg, opus, m4a)
+      --play/--no-play play audio (default: on; live streaming without -o)
       --engine ENGINE  mlx (default) or mock (tests/dev)
       --json           machine-readable result
 
@@ -66,9 +66,24 @@ def _json_print(data: Any) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True))
 
 
+def _speak_json(result) -> dict[str, Any]:
+    return {
+        "output": str(result.output) if result.output else None,
+        "streamed": result.result.streamed,
+        "format": result.format,
+        "duration": result.result.duration,
+        "sample_rate": result.result.sample_rate,
+        "model": result.spec.id,
+        "voice": voice_label(result),
+        "language": result.language,
+        "speed": result.speed,
+        "engine": result.engine,
+    }
+
+
 def _add_speak_flags(parser: argparse.ArgumentParser, *, include_model: bool = True) -> None:
     if include_model:
-        parser.add_argument("-m", "--model", help="model id, e.g. qwen3:0.6b")
+        parser.add_argument("-m", "--model", help="model id, e.g. voxtral:4b")
     parser.add_argument("--voice", help="preset voice or cloned profile name")
     parser.add_argument(
         "--emotion",
@@ -81,7 +96,7 @@ def _add_speak_flags(parser: argparse.ArgumentParser, *, include_model: bool = T
         help="language code or name (de, en, German, English, ...)",
     )
     parser.add_argument("--speed", type=float, help="speech speed, 0.5 .. 2.0")
-    parser.add_argument("-o", "--output", help="output WAV file")
+    parser.add_argument("-o", "--output", help="output file (wav, mp3, flac, ogg, opus, m4a)")
     play = parser.add_mutually_exclusive_group()
     play.add_argument("--play", dest="play", action="store_true", help="play the audio")
     play.add_argument("--no-play", dest="play", action="store_false", help="do not play")
@@ -114,18 +129,7 @@ def _cmd_speak(argv: Sequence[str]) -> int:
     text = " ".join(args.text).strip()
     result = speak(_speak_options(args, text=text, model=args.model, explicit=args.model is not None))
     if args.json:
-        _json_print(
-            {
-                "output": str(result.output),
-                "duration": result.result.duration,
-                "sample_rate": result.result.sample_rate,
-                "model": result.spec.id,
-                "voice": voice_label(result),
-                "language": result.language,
-                "speed": result.speed,
-                "engine": result.engine,
-            }
-        )
+        _json_print(_speak_json(result))
     else:
         print_result(result)
     return 0
@@ -133,25 +137,14 @@ def _cmd_speak(argv: Sequence[str]) -> int:
 
 def _cmd_run(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="ttspeak run", description="Generate speech with an explicit model.")
-    parser.add_argument("model", help="model id, e.g. qwen3:0.6b")
+    parser.add_argument("model", help="model id, e.g. voxtral:4b")
     parser.add_argument("text", nargs="+", help="text to speak")
     _add_speak_flags(parser, include_model=False)
     args = parser.parse_args(argv)
     text = " ".join(args.text).strip()
     result = speak(_speak_options(args, text=text, model=args.model, explicit=True))
     if args.json:
-        _json_print(
-            {
-                "output": str(result.output),
-                "duration": result.result.duration,
-                "sample_rate": result.result.sample_rate,
-                "model": result.spec.id,
-                "voice": voice_label(result),
-                "language": result.language,
-                "speed": result.speed,
-                "engine": result.engine,
-            }
-        )
+        _json_print(_speak_json(result))
     else:
         print_result(result)
     return 0
@@ -209,7 +202,7 @@ def _cmd_list(argv: Sequence[str]) -> int:
         _json_print(rows)
         return 0
     if not rows:
-        print("No models installed. Run: ttspeak pull qwen3:0.6b")
+        print("No models installed. Run: ttspeak pull voxtral:4b")
         return 0
     print(f"{'ID':<20} {'SIZE':>10}  {'INSTALLED':<10}  METHOD")
     for row in rows:

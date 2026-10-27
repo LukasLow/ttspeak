@@ -102,6 +102,17 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                 "files": files,
             },
             {
+                "id": "fake:preset",
+                "repo": "test/fake-preset",
+                "method": "preset_voice",
+                "description": "Fake preset-voice model",
+                "voices": ["de_female", "de_male"],
+                "languages": ["German"],
+                "default_voice": "de_female",
+                "source": "static",
+                "files": files,
+            },
+            {
                 "id": "fake:broken",
                 "repo": "test/fake-broken",
                 "method": "custom_voice",

@@ -1,10 +1,12 @@
 import io
+import os
 import wave
 
 import pytest
 
 from ttspeak import speak as speak_module
 from ttspeak import store, voices
+from ttspeak.engines.base import SynthesisResult
 from ttspeak.engines.mock import MockEngine
 from ttspeak.errors import ModelNotInstalled, UsageError, VoiceError
 from ttspeak.speak import SpeakOptions, speak
@@ -116,14 +118,47 @@ def test_invalid_speed_and_output(env, tmp_path):
                 engine="mock",
             )
         )
-    with pytest.raises(UsageError, match="WAV"):
+    with pytest.raises(UsageError, match="Unsupported output format"):
         speak(
             SpeakOptions(
                 text="Hallo",
                 model="fake:custom",
                 model_explicit=True,
                 play=False,
-                output=str(tmp_path / "out.mp3"),
+                output=str(tmp_path / "out.xyz"),
+                engine="mock",
+            )
+        )
+
+
+def test_preset_voice_model_uses_default_voice(env, tmp_path, monkeypatch):
+    captured = capture_engine(monkeypatch)
+    result = speak(
+        SpeakOptions(
+            text="Guten Tag",
+            model="fake:preset",
+            model_explicit=True,
+            play=False,
+            output=str(tmp_path / "preset.wav"),
+            engine="mock",
+        )
+    )
+    request = captured["request"]
+    assert request.method == "preset_voice"
+    assert request.speaker == "de_female"
+    assert result.speaker == "de_female"
+
+
+def test_preset_voice_model_rejects_unsupported_language(env, tmp_path):
+    with pytest.raises(UsageError, match="does not support English"):
+        speak(
+            SpeakOptions(
+                text="Hello",
+                model="fake:preset",
+                model_explicit=True,
+                language="en",
+                play=False,
+                output=str(tmp_path / "preset.wav"),
                 engine="mock",
             )
         )
@@ -225,3 +260,134 @@ def test_mlx_requires_installed_model(env, tmp_path):
                 engine="mlx",
             )
         )
+
+
+def test_live_streaming_uses_mlx_stream(env, monkeypatch):
+    store.pull_model("fake:custom", progress=quiet_progress())
+    captured = {}
+
+    class FakeMlx:
+        def __init__(self):
+            pass
+
+        def synthesize(self, request):
+            captured["request"] = request
+            return SynthesisResult(
+                output=None,
+                duration=1.0,
+                sample_rate=24000,
+                chunks=3,
+                streamed=True,
+            )
+
+    monkeypatch.setattr("ttspeak.engines.mlx.MlxEngine", FakeMlx)
+    monkeypatch.setattr(speak_module, "play_audio", lambda path: pytest.fail("double playback"))
+    result = speak(
+        SpeakOptions(
+            text="Hallo",
+            model="fake:custom",
+            model_explicit=True,
+            play=True,
+            engine="mlx",
+        )
+    )
+    assert captured["request"].stream is True
+    assert captured["request"].output is None
+    assert result.result.streamed is True
+    assert result.output is None
+
+
+def test_output_file_disables_streaming(env, tmp_path, monkeypatch):
+    store.pull_model("fake:custom", progress=quiet_progress())
+    captured = {}
+    played = []
+
+    class FakeMlx:
+        def __init__(self):
+            pass
+
+        def synthesize(self, request):
+            captured["request"] = request
+            assert request.output is not None
+            request.output.write_bytes(b"RIFFfake")
+            return SynthesisResult(output=request.output, duration=1.0, sample_rate=24000)
+
+    monkeypatch.setattr("ttspeak.engines.mlx.MlxEngine", FakeMlx)
+    monkeypatch.setattr(speak_module, "play_audio", lambda path: played.append(path))
+    output = tmp_path / "file.wav"
+    result = speak(
+        SpeakOptions(
+            text="Hallo",
+            model="fake:custom",
+            model_explicit=True,
+            play=True,
+            output=str(output),
+            engine="mlx",
+        )
+    )
+    assert captured["request"].stream is False
+    assert result.result.streamed is False
+    assert played == [output]
+
+
+def test_mp3_output_uses_ffmpeg(env, tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ffmpeg = bin_dir / "ffmpeg"
+    ffmpeg.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "source = args[args.index('-i') + 1]\n"
+        "pathlib.Path(args[-1]).write_bytes(b'ID3fake')\n",
+        encoding="utf-8",
+    )
+    ffmpeg.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    output = tmp_path / "out.mp3"
+    result = speak(
+        SpeakOptions(
+            text="Hallo",
+            model="fake:custom",
+            model_explicit=True,
+            play=False,
+            output=str(output),
+            engine="mock",
+        )
+    )
+    assert result.output == output
+    assert output.read_bytes() == b"ID3fake"
+    assert not list((env.root / "tmp").glob("ttspeak-*.wav"))
+
+
+def test_mp3_requires_ffmpeg(env, tmp_path, monkeypatch):
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(UsageError, match="needs ffmpeg"):
+        speak(
+            SpeakOptions(
+                text="Hallo",
+                model="fake:custom",
+                model_explicit=True,
+                play=False,
+                output=str(tmp_path / "out.mp3"),
+                engine="mock",
+            )
+        )
+
+
+def test_output_without_suffix_gets_wav(env, tmp_path):
+    result = speak(
+        SpeakOptions(
+            text="Hallo",
+            model="fake:custom",
+            model_explicit=True,
+            play=False,
+            output=str(tmp_path / "audio"),
+            engine="mock",
+        )
+    )
+    assert result.output == tmp_path / "audio.wav"
+    assert result.output.is_file()

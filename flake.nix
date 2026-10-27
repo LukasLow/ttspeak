@@ -1,5 +1,5 @@
 {
-  description = "Ollama-style local text-to-speech for Apple Silicon (Qwen3-TTS, MLX, Nix)";
+  description = "Ollama-style local text-to-speech for Apple Silicon (Voxtral + Qwen3-TTS, MLX, Nix)";
 
   inputs = {
     nixpkgs.url = "github:nixOS/nixpkgs/nixpkgs-unstable";
@@ -48,6 +48,7 @@
               pkgs.python312Packages.pytest
               pkgs.uv
               pkgs.ruff
+              pkgs.ffmpeg
               pkgs.git
             ];
 

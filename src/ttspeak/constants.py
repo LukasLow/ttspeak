@@ -7,7 +7,7 @@ from .errors import UsageError
 APP_VERSION = "0.1.0"
 
 BUILTIN_DEFAULTS: dict[str, object] = {
-    "model": "qwen3:0.6b",
+    "model": "voxtral:4b",
     "voice": None,
     "language": "German",
     "speed": 1.0,

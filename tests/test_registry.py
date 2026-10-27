@@ -17,6 +17,7 @@ def test_aliases_and_repo_lookup(env, monkeypatch):
     monkeypatch.delenv("TTSPEAK_REGISTRY", raising=False)
     models = load_registry()
     assert resolve_model("qwen3", models).id == "qwen3:0.6b"
+    assert resolve_model("voxtral", models).id == "voxtral:4b"
     assert resolve_model("qwen3:0.6b:latest", models).id == "qwen3:0.6b"
     assert resolve_model("mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", models).id == "qwen3:0.6b"
 

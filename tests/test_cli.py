@@ -90,7 +90,7 @@ def test_config_set_get_list_unset(run_cli):
 
     unset = run_cli("config", "unset", "model")
     assert unset.returncode == 0
-    assert run_cli("config", "get", "model").stdout.strip() == "qwen3:0.6b"
+    assert run_cli("config", "get", "model").stdout.strip() == "voxtral:4b"
 
 
 def test_synthesis_uses_config_model(run_cli, env):

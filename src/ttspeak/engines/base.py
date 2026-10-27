@@ -10,7 +10,7 @@ from typing import Protocol
 @dataclass
 class SynthesisRequest:
     text: str
-    output: Path
+    output: Path | None
     method: str
     model_path: Path | None = None
     speaker: str | None = None
@@ -19,14 +19,16 @@ class SynthesisRequest:
     speed: float = 1.0
     ref_audio: Path | None = None
     ref_text: str | None = None
+    stream: bool = False
 
 
 @dataclass
 class SynthesisResult:
-    output: Path
+    output: Path | None
     duration: float
     sample_rate: int
     chunks: int = 1
+    streamed: bool = False
 
 
 class Engine(Protocol):

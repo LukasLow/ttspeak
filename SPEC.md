@@ -3,9 +3,9 @@
 ## Problem
 
 Ollama made local LLMs manageable: one CLI, a model store, `pull`, `list`, `rm`.
-Local TTS on Apple Silicon has no equivalent. Qwen3-TTS via `mlx-audio` is a strong
-engine, but installing it, downloading weights, choosing a voice and removing it
-again is manual work.
+Local TTS on Apple Silicon has no equivalent. Voxtral and Qwen3-TTS via
+`mlx-audio` are strong engines, but installing them, downloading weights, choosing
+a voice and removing them again is manual work.
 
 ## Goal
 
@@ -14,23 +14,24 @@ again is manual work.
 
 ```console
 $ ttspeak "Guten Morgen, wie geht es dir?"
-$ ttspeak pull qwen3:0.6b
+$ ttspeak pull voxtral:4b
 $ ttspeak list
-$ ttspeak rm qwen3:0.6b
+$ ttspeak rm voxtral:4b
 ```
 
 ## Users and use cases
 
-1. Speak a sentence from the terminal with one command.
-2. Declaratively install a TTS engine + model + voice through Home Manager.
-3. Test several Qwen3 variants and remove the ones that are not needed.
-4. Clone a voice from a reference recording and manage it as a named profile.
+1. Speak a sentence from the terminal with one command, live-streamed by default.
+2. Write a finished WAV or MP3 with `-o` for later use.
+3. Declaratively install a TTS engine + model + voice through Home Manager.
+4. Test several models and remove the ones that are not needed.
+5. Clone a voice from a reference recording and manage it as a named profile.
 
 ## Command contract
 
 | Command | Behaviour |
 |---|---|
-| `ttspeak TEXT...` | Synthesize text with the resolved model/voice. Default: play, unless `--output` is given (then save + play unless `--no-play`). |
+| `ttspeak TEXT...` | Synthesize text. Without `-o` and with playback enabled, stream chunks to the default audio device. With `-o`, write a file (non-streaming) and play it afterwards unless `--no-play`. |
 | `ttspeak run MODEL TEXT...` | Same, with an explicit model. |
 | `ttspeak pull MODEL [--force]` | Download a registry model into the local store, atomically. |
 | `ttspeak list` | Installed models, size, default marker. |
@@ -53,12 +54,12 @@ $ ttspeak rm qwen3:0.6b
 
 - `-m, --model ID`
 - `--voice NAME` — preset speaker or cloned profile (a leading `@` forces profile lookup)
-- `--emotion PRESET` — `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`
-- `--instruct TEXT` — free-form style instruction (combines with `--emotion`)
+- `--emotion PRESET` — Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`
+- `--instruct TEXT` — Qwen3 only: free-form style instruction (combines with `--emotion`)
 - `--language NAME|CODE` — `de`/`German`, `en`/`English`, …
 - `--speed FLOAT` — 0.5–2.0
-- `-o, --output PATH` — write WAV here
-- `--play / --no-play`
+- `-o, --output PATH` — write WAV/MP3/FLAC/OGG/Opus/M4A; disables live streaming
+- `--play / --no-play` — live streaming by default when no `-o` is given
 - `--engine mock|mlx` — `mock` is for development/tests only
 
 `--` terminates flag parsing so text may start with a dash.
@@ -89,8 +90,8 @@ Environment: `TTSPEAK_HOME`, `TTSPEAK_DEFAULTS`, `TTSPEAK_MODEL`, `TTSPEAK_VOICE
 `TTSPEAK_LANGUAGE`, `TTSPEAK_EMOTION`, `TTSPEAK_SPEED`, `TTSPEAK_ENGINE`,
 `TTSPEAK_PYTHON`, `TTSPEAK_REGISTRY`, `HF_TOKEN`.
 
-Built-in defaults: model `qwen3:0.6b`, voice = model default (`Serena` for Qwen3
-CustomVoice), language `German`, speed `1.0`, play enabled.
+Built-in defaults: model `voxtral:4b`, voice = model default (`de_female` for
+Voxtral), language `German`, speed `1.0`, play enabled.
 
 ## Backends
 
@@ -99,24 +100,32 @@ CustomVoice), language `German`, speed `1.0`, play enabled.
 - **MLX** (default on macOS arm64): invokes an isolated runtime Python with
   `worker_mlx.py`. The worker loads the *local* model directory with
   `mlx_audio.tts.utils.load_model` (no Hub access at synthesis time) and calls
-  `generate_custom_voice`, `generate_voice_design` or `generate` (voice cloning),
-  then writes a 16-bit PCM WAV. Communication is JSON in / JSON out over files.
+  `generate` (Voxtral preset voices or Qwen3 cloning), `generate_custom_voice`
+  or `generate_voice_design`. With `stream=True` it writes chunks directly to the
+  default audio device via `sounddevice` (live mode); otherwise it writes a 16-bit
+  PCM WAV. Communication is JSON in / JSON out over files.
 
-The core CLI has **zero Python dependencies** (standard library only). `mlx-audio`
-lives in the runtime venv so the Nix package stays small, reproducible and buildable
-in the sandbox.
+The core CLI has **zero Python dependencies** (standard library only).
+`mlx-audio[tts]` (with `mistral-common[audio]` for Voxtral) lives in the runtime
+venv so the Nix package stays small, reproducible and buildable in the sandbox.
 
 ## Model registry (v0.1)
 
 | ID | HF repo | Method |
 |---|---|---|
+| `voxtral:4b` | `mlx-community/Voxtral-4B-TTS-2603-mlx-4bit` | preset voices |
 | `qwen3:0.6b` | `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit` | custom voice |
 | `qwen3:1.7b` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | custom voice |
 | `qwen3:0.6b-base` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit` | voice cloning |
 | `qwen3:1.7b-base` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | voice cloning |
 | `qwen3:1.7b-design` | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit` | voice design |
 
-Preset speakers: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee.
+Voxtral voices: `de_female`, `de_male`, `casual_female`, `casual_male`,
+`cheerful_female`, `neutral_female`, `neutral_male`, plus French, Spanish, Italian,
+Portuguese, Dutch, Arabic and Hindi voices. Languages: English, French, Spanish,
+German, Italian, Portuguese, Dutch, Arabic, Hindi.
+
+Qwen3 speakers: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee.
 Languages: Chinese, English, Japanese, Korean, German, French, Russian, Portuguese,
 Spanish, Italian.
 
@@ -126,16 +135,16 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 ## Nix deliverables
 
 - `packages.<system>.default` — the pure-Python CLI (`buildPythonApplication`).
-- `devShells.<system>.default` — Python, pytest, uv for development.
+- `devShells.<system>.default` — Python, pytest, uv, ruff and ffmpeg.
 - `homeManagerModules.default` — `programs.ttspeak`:
-  - installs the package,
+  - installs the package and ffmpeg (optional, default on),
   - writes declarative defaults from `settings` via `TTSPEAK_DEFAULTS`,
   - pulls `models` on activation (idempotent, non-fatal warnings),
   - optionally creates `voices.<name>` profiles from reference audio and pulls
     their base models,
   - `onActivation.cleanup = "zap"` removes models/voices not declared
     (the `brew bundle cleanup --force` equivalent); default is `"none"`,
-  - optionally installs the MLX runtime (uv + Python) and exposes it.
+  - optionally installs the MLX runtime (`mlx-audio[tts]`, uv + Python).
 
 ## Acceptance criteria
 
@@ -149,6 +158,10 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 7. README documents Home Manager usage, model management and removal.
 8. Home Manager `onActivation.cleanup = "zap"` reconciles models and voices
    declaratively, including automatic removal of undeclared entries.
+9. Without `-o`, MLX synthesis streams chunks to the audio device before the full
+   text is generated; `request.stream` is true and `SpeakResult.output` is null.
+10. With `-o`, generation is non-streaming and MP3 output is transcoded via ffmpeg;
+    missing ffmpeg fails before model loading.
 
 ## Boundaries
 
@@ -161,5 +174,5 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 
 ## Non-goals (v0.1)
 
-Streaming playback, HTTP server/API, MP3/FLAC output, non-Qwen engines, Linux MLX,
-automatic speech recognition of reference audio.
+HTTP server/API, non-MLX engines, Linux MLX, automatic speech recognition of
+reference audio.

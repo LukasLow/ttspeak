@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
+import time
 import traceback
 import wave
 from pathlib import Path
@@ -38,6 +39,66 @@ def supported_call(function, kwargs: dict[str, Any]):
     return function(**clean)
 
 
+def _stream_play(function, kwargs: dict[str, Any], model) -> dict[str, Any]:
+    """Generate with stream=True and write chunks to the default audio device."""
+    import numpy as np
+    import sounddevice as sd
+
+    start = time.monotonic()
+    output_stream = None
+    total_samples = 0
+    chunks = 0
+    sample_rate = int(getattr(model, "sample_rate", None) or 24000)
+    first_chunk_seconds: float | None = None
+
+    try:
+        for result in supported_call(function, kwargs):
+            data = np.asarray(result.audio, dtype=np.float32).reshape(-1)
+            if data.size == 0:
+                continue
+            if output_stream is None:
+                sample_rate = int(
+                    getattr(result, "sample_rate", None)
+                    or getattr(model, "sample_rate", None)
+                    or 24000
+                )
+                output_stream = sd.OutputStream(
+                    samplerate=sample_rate,
+                    channels=1,
+                    dtype="float32",
+                )
+                output_stream.start()
+                first_chunk_seconds = time.monotonic() - start
+                log(f"first audio after {first_chunk_seconds:.2f}s")
+            output_stream.write(data.reshape(-1, 1))
+            total_samples += data.size
+            chunks += 1
+    except sd.PortAudioError as exc:
+        raise RuntimeError(
+            "Live audio output failed. Use `--no-play -o out.wav` to write a file instead. "
+            f"PortAudio: {exc}"
+        ) from exc
+    finally:
+        if output_stream is not None:
+            output_stream.stop()
+            output_stream.close()
+
+    if chunks == 0:
+        raise RuntimeError("The model returned only empty audio chunks.")
+
+    duration = total_samples / sample_rate if sample_rate else 0.0
+    log(f"streamed {duration:.2f}s at {sample_rate} Hz")
+    return {
+        "ok": True,
+        "output": None,
+        "duration": duration,
+        "sample_rate": sample_rate,
+        "chunks": chunks,
+        "streamed": True,
+        "first_chunk_seconds": first_chunk_seconds,
+    }
+
+
 def synthesize(request: dict[str, Any]) -> dict[str, Any]:
     import mlx.core as mx
     import numpy as np
@@ -46,28 +107,19 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
     model_path = Path(request["model_path"])
     method = request["method"]
     text = request["text"]
-    output = Path(request["output"])
-    output.parent.mkdir(parents=True, exist_ok=True)
-
-    if method == "custom_voice":
-        if not request.get("speaker"):
-            raise ValueError("custom_voice requires a speaker")
-    elif method == "voice_design":
-        if not request.get("instruct"):
-            raise ValueError("voice_design requires an instruction/description")
-    elif method == "clone":
-        if not request.get("ref_audio"):
-            raise ValueError("voice cloning requires a reference audio file")
-        if not Path(request["ref_audio"]).is_file():
-            raise FileNotFoundError(f"Reference audio not found: {request['ref_audio']}")
-    else:
-        raise ValueError(f"Unknown method: {method}")
+    output_value = request.get("output")
+    stream = bool(request.get("stream")) and not output_value
+    output = Path(output_value) if output_value else None
+    if not stream and output is None:
+        raise ValueError("Non-streaming synthesis requires an output file.")
 
     log(f"loading {model_path.name} ...")
     model = load_model(model_path)
     log("model loaded")
 
     if method == "custom_voice":
+        if not request.get("speaker"):
+            raise ValueError("custom_voice requires a speaker")
         function = getattr(model, "generate_custom_voice", None)
         kwargs = {
             "text": text,
@@ -76,7 +128,18 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
             "instruct": request.get("instruct"),
             "speed": request.get("speed"),
         }
+    elif method == "preset_voice":
+        if not request.get("speaker"):
+            raise ValueError("preset_voice requires a voice")
+        function = getattr(model, "generate", None)
+        kwargs = {
+            "text": text,
+            "voice": request.get("speaker"),
+            "speed": request.get("speed"),
+        }
     elif method == "voice_design":
+        if not request.get("instruct"):
+            raise ValueError("voice_design requires an instruction/description")
         function = getattr(model, "generate_voice_design", None)
         kwargs = {
             "text": text,
@@ -84,7 +147,11 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
             "instruct": request.get("instruct"),
             "speed": request.get("speed"),
         }
-    else:
+    elif method == "clone":
+        if not request.get("ref_audio"):
+            raise ValueError("voice cloning requires a reference audio file")
+        if not Path(request["ref_audio"]).is_file():
+            raise FileNotFoundError(f"Reference audio not found: {request['ref_audio']}")
         function = getattr(model, "generate", None)
         kwargs = {
             "text": text,
@@ -92,11 +159,19 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
             "ref_text": request.get("ref_text"),
             "speed": request.get("speed"),
         }
+    else:
+        raise ValueError(f"Unknown method: {method}")
 
     if function is None:
         raise AttributeError(f"Model {type(model).__name__} has no method for '{method}'")
 
     log(f"generating {len(text)} characters ...")
+    if stream:
+        kwargs["stream"] = True
+        kwargs["streaming_interval"] = 0.32
+        return _stream_play(function, kwargs, model)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
     results = list(supported_call(function, kwargs))
     if not results:
         raise RuntimeError("The model returned no audio.")
@@ -138,6 +213,7 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
         "duration": duration,
         "sample_rate": sample_rate,
         "chunks": len(chunks),
+        "streamed": False,
         "real_time_factor": float(rtf) if rtf is not None else None,
         "processing_time_seconds": float(processing) if processing is not None else None,
     }

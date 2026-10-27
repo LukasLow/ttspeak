@@ -13,7 +13,7 @@ python3Packages.buildPythonApplication {
   pythonImportsCheck = [ "ttspeak" ];
 
   meta = {
-    description = "Ollama-style local text-to-speech for Apple Silicon (Qwen3-TTS via MLX)";
+    description = "Ollama-style local text-to-speech for Apple Silicon (Voxtral + Qwen3-TTS via MLX)";
     homepage = "https://github.com/LukasLow/ttspeak";
     license = lib.licenses.mit;
     mainProgram = "ttspeak";

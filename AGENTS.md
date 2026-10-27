@@ -15,8 +15,10 @@
 ## What this project is
 
 `ttspeak` is an Ollama-style CLI for local text-to-speech on macOS Apple Silicon.
-It manages Qwen3-TTS model weights and cloned voice profiles, and delegates
-synthesis to MLX Audio in an isolated runtime venv.
+It manages Voxtral and Qwen3-TTS model weights plus cloned voice profiles, and
+delegates synthesis to MLX Audio in an isolated runtime venv. The default model
+is Voxtral 4B (4-bit) with the German `de_female` voice; Qwen3-TTS remains
+available for emotion control and voice cloning.
 
 ## Architecture rules
 
@@ -61,9 +63,10 @@ Do not add network-dependent tests.
 ## SEO / discoverability
 
 The README and GitHub repository metadata should remain searchable for:
-"local text-to-speech macOS", "offline TTS Apple Silicon", "Qwen3-TTS MLX",
-"Nix flake", "Home Manager module", "Ollama-style TTS", "German TTS offline",
-"voice cloning macOS". Use natural prose; do not stuff keywords.
+"local text-to-speech macOS", "offline TTS Apple Silicon", "Voxtral TTS MLX",
+"Qwen3-TTS MLX", "Nix flake", "Home Manager module", "Ollama-style TTS",
+"German TTS offline", "voice cloning macOS", "MP3 TTS", "streaming TTS". Use
+natural prose; do not stuff keywords.
 
 ## Git
 

@@ -58,7 +58,7 @@ def check_python(python: Path) -> RuntimeStatus:
         return RuntimeStatus(python=None, healthy=False, detail=f"{python} does not exist")
     probe = (
         "import json, sys\n"
-        "import mlx_audio, mlx.core\n"
+        "import mlx_audio, mlx.core, mistral_common\n"
         "try:\n"
         "    from importlib.metadata import version as _version\n"
         "    _mlx_version = _version('mlx-audio')\n"
@@ -142,7 +142,9 @@ def runtime_status() -> RuntimeStatus:
 
 
 def _pip_spec(version: str | None) -> str:
-    return f"mlx-audio=={version}" if version else "mlx-audio"
+    # [tts] adds mistral-common[audio], required by Voxtral TTS.
+    spec = "mlx-audio[tts]"
+    return f"{spec}=={version}" if version else spec
 
 
 def _python_version(python: Path) -> tuple[int, int]:
@@ -178,13 +180,16 @@ def install_runtime(
         raise EngineError(f"Python {host_python} is too old; mlx-audio needs >= 3.10.")
 
     uv = shutil.which("uv")
+    repair = venv_python.exists() and not force
+    action = "Repairing" if repair else "Creating"
     print(
-        f"Creating MLX runtime at {venv} "
+        f"{action} MLX runtime at {venv} "
         f"(using {'uv' if uv else 'venv/pip'}, source {host_python})",
         file=sys.stderr,
     )
     if uv:
-        _run([uv, "venv", "--python", str(host_python), str(venv)], check=True, capture=False)
+        if not repair:
+            _run([uv, "venv", "--python", str(host_python), str(venv)], check=True, capture=False)
         _run(
             [
                 uv,
@@ -193,16 +198,18 @@ def install_runtime(
                 "--python",
                 str(venv_python),
                 "--prerelease=allow",
+                "--upgrade",
                 _pip_spec(version),
             ],
             check=True,
             capture=False,
         )
     else:
-        _run([str(host_python), "-m", "venv", str(venv)], check=True, capture=False)
+        if not repair:
+            _run([str(host_python), "-m", "venv", str(venv)], check=True, capture=False)
         _run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True, capture=False)
         _run(
-            [str(venv_python), "-m", "pip", "install", "--pre", _pip_spec(version)],
+            [str(venv_python), "-m", "pip", "install", "--pre", "--upgrade", _pip_spec(version)],
             check=True,
             capture=False,
         )
@@ -254,7 +261,8 @@ class MlxEngine:
             "model_path": str(request.model_path),
             "method": request.method,
             "text": request.text,
-            "output": str(request.output),
+            "output": str(request.output) if request.output else None,
+            "stream": request.stream,
             "result_path": str(result_path),
             "speaker": request.speaker,
             "language": request.language,
@@ -294,8 +302,12 @@ class MlxEngine:
         result = json.loads(result_path.read_text(encoding="utf-8"))
         if not result.get("ok"):
             raise EngineError(f"MLX generation failed: {result.get('error', 'unknown error')}")
-        output = Path(result["output"])
-        if not output.is_file():
+        streamed = bool(result.get("streamed"))
+        output_value = result.get("output")
+        output = Path(output_value) if output_value else None
+        if not streamed and output is None:
+            raise EngineError("Worker reported success without an output file.")
+        if output is not None and not output.is_file():
             raise EngineError(f"Worker reported success but {output} is missing.")
         shutil.rmtree(workdir, ignore_errors=True)
         return SynthesisResult(
@@ -303,4 +315,5 @@ class MlxEngine:
             duration=float(result.get("duration", 0.0)),
             sample_rate=int(result.get("sample_rate", 24000)),
             chunks=int(result.get("chunks", 1)),
+            streamed=streamed,
         )

@@ -31,6 +31,8 @@ class MockEngine:
     name = "mock"
 
     def synthesize(self, request: SynthesisRequest) -> SynthesisResult:
+        if request.output is None:
+            raise ValueError("The mock engine needs an output file.")
         duration = min(5.0, max(0.3, 0.055 * len(request.text)))
         request.output.parent.mkdir(parents=True, exist_ok=True)
         with wave.open(str(request.output), "wb") as handle:

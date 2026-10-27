@@ -134,6 +134,12 @@ in
       description = "Install the isolated MLX runtime (mlx-audio) if it is missing.";
     };
 
+    ffmpeg = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Install ffmpeg for MP3/FLAC/OGG/Opus/M4A output.";
+    };
+
     runtime.python = lib.mkOption {
       type = lib.types.package;
       default = pkgs.python312;
@@ -174,6 +180,7 @@ in
     home.packages = [
       cfg.package
     ]
+    ++ lib.optional cfg.ffmpeg pkgs.ffmpeg
     ++ lib.optionals cfg.runtime.enable [
       pkgs.uv
       cfg.runtime.python
