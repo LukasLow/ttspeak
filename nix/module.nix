@@ -177,14 +177,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # runtime.python is referenced by absolute store path for the venv. Do not
+    # link it into the profile: two Python versions collide on bin/idle.
     home.packages = [
       cfg.package
     ]
     ++ lib.optional cfg.ffmpeg pkgs.ffmpeg
-    ++ lib.optionals cfg.runtime.enable [
-      pkgs.uv
-      cfg.runtime.python
-    ];
+    ++ lib.optional cfg.runtime.enable pkgs.uv;
 
     home.sessionVariables = lib.mkIf (cfg.settings != { }) {
       TTSPEAK_DEFAULTS = "${defaultsFile}";
