@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,10 @@ from ..util import utc_now, write_json
 from .base import SynthesisRequest, SynthesisResult
 
 MLX_MIN_PYTHON = (3, 10)
+# Pinned because mlx-audio leaves mistral-common unpinned and Voxtral needs
+# AudioConfig.voice_num_audio_tokens (added in mistral-common 1.12.0).
+MLX_AUDIO_VERSION = "0.6.2"
+MISTRAL_COMMON_VERSION = "1.12.0"
 
 
 @dataclass
@@ -53,18 +58,25 @@ def _run(
         raise EngineError(f"Command timed out after {timeout:.0f}s: {' '.join(command)}") from exc
 
 
+def _version_tuple(value: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for chunk in value.split("."):
+        match = re.match(r"(\d+)", chunk)
+        if not match:
+            break
+        parts.append(int(match.group(1)))
+    return tuple(parts)
+
+
 def check_python(python: Path) -> RuntimeStatus:
     if not python.exists():
         return RuntimeStatus(python=None, healthy=False, detail=f"{python} does not exist")
     probe = (
         "import json, sys\n"
         "import mlx_audio, mlx.core, mistral_common\n"
-        "try:\n"
-        "    from importlib.metadata import version as _version\n"
-        "    _mlx_version = _version('mlx-audio')\n"
-        "except Exception:\n"
-        "    _mlx_version = getattr(mlx_audio, '__version__', 'unknown')\n"
-        "print(json.dumps({'version': _mlx_version,"
+        "from importlib.metadata import version as _version\n"
+        "print(json.dumps({'version': _version('mlx-audio'),"
+        " 'mistral': _version('mistral-common'),"
         " 'python': sys.version.split()[0]}))\n"
     )
     try:
@@ -84,11 +96,33 @@ def check_python(python: Path) -> RuntimeStatus:
         info = json.loads(result.stdout.strip().splitlines()[-1])
     except (json.JSONDecodeError, IndexError):
         info = {}
+    mlx_version = info.get("version")
+    mistral_version = info.get("mistral")
+    if not mlx_version or _version_tuple(str(mlx_version)) < _version_tuple(MLX_AUDIO_VERSION):
+        return RuntimeStatus(
+            python=python,
+            healthy=False,
+            detail=f"mlx-audio {mlx_version or '?'} is older than {MLX_AUDIO_VERSION}",
+        )
+    if not mistral_version or _version_tuple(str(mistral_version)) < _version_tuple(
+        MISTRAL_COMMON_VERSION
+    ):
+        return RuntimeStatus(
+            python=python,
+            healthy=False,
+            detail=(
+                f"mistral-common {mistral_version or '?'} is older than "
+                f"{MISTRAL_COMMON_VERSION} (Voxtral needs AudioConfig.voice_num_audio_tokens)"
+            ),
+        )
     return RuntimeStatus(
         python=python,
         healthy=True,
-        detail=f"Python {info.get('python', '?')}, mlx-audio {info.get('version', 'unknown')}",
-        version=info.get("version"),
+        detail=(
+            f"Python {info.get('python', '?')}, mlx-audio {mlx_version}, "
+            f"mistral-common {mistral_version}"
+        ),
+        version=str(mlx_version),
     )
 
 
@@ -141,10 +175,13 @@ def runtime_status() -> RuntimeStatus:
     return find_runtime(required=False)
 
 
-def _pip_spec(version: str | None) -> str:
+def _pip_packages(version: str | None) -> list[str]:
     # [tts] adds mistral-common[audio], required by Voxtral TTS.
-    spec = "mlx-audio[tts]"
-    return f"{spec}=={version}" if version else spec
+    mlx_version = version or MLX_AUDIO_VERSION
+    return [
+        f"mlx-audio[tts]=={mlx_version}",
+        f"mistral-common[audio]=={MISTRAL_COMMON_VERSION}",
+    ]
 
 
 def _python_version(python: Path) -> tuple[int, int]:
@@ -199,7 +236,7 @@ def install_runtime(
                 str(venv_python),
                 "--prerelease=allow",
                 "--upgrade",
-                _pip_spec(version),
+                *_pip_packages(version),
             ],
             check=True,
             capture=False,
@@ -209,7 +246,7 @@ def install_runtime(
             _run([str(host_python), "-m", "venv", str(venv)], check=True, capture=False)
         _run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True, capture=False)
         _run(
-            [str(venv_python), "-m", "pip", "install", "--pre", "--upgrade", _pip_spec(version)],
+            [str(venv_python), "-m", "pip", "install", "--pre", "--upgrade", *_pip_packages(version)],
             check=True,
             capture=False,
         )
@@ -225,6 +262,7 @@ def install_runtime(
             "python": str(venv_python),
             "source_python": str(host_python),
             "mlx_audio": status.version,
+            "mistral_common": MISTRAL_COMMON_VERSION,
             "installed_at": utc_now(),
         },
         private=True,
