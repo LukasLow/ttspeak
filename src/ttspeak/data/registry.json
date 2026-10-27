@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "updated": "2026-10-27",
+  "models": [
+    {
+      "id": "qwen3:0.6b",
+      "repo": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+      "method": "custom_voice",
+      "description": "Qwen3-TTS 0.6B, 8-bit, preset voices and emotion control. Fast default.",
+      "voices": ["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ryan", "Aiden", "Ono_Anna", "Sohee"],
+      "languages": ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"],
+      "default_voice": "Serena",
+      "size_hint": 1976000000
+    },
+    {
+      "id": "qwen3:1.7b",
+      "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
+      "method": "custom_voice",
+      "description": "Qwen3-TTS 1.7B, 8-bit, preset voices with better emotion control.",
+      "voices": ["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ryan", "Aiden", "Ono_Anna", "Sohee"],
+      "languages": ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"],
+      "default_voice": "Serena",
+      "size_hint": 3080000000
+    },
+    {
+      "id": "qwen3:0.6b-base",
+      "repo": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+      "method": "clone",
+      "description": "Qwen3-TTS 0.6B Base, 8-bit. Required for cloned voice profiles.",
+      "voices": [],
+      "languages": ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"],
+      "size_hint": 1990000000
+    },
+    {
+      "id": "qwen3:1.7b-base",
+      "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+      "method": "clone",
+      "description": "Qwen3-TTS 1.7B Base, 8-bit. Higher-quality voice cloning.",
+      "voices": [],
+      "languages": ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"],
+      "size_hint": 3080000000
+    },
+    {
+      "id": "qwen3:1.7b-design",
+      "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
+      "method": "voice_design",
+      "description": "Qwen3-TTS 1.7B VoiceDesign, 8-bit. Create a voice from a text description.",
+      "voices": [],
+      "languages": ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"],
+      "size_hint": 3080000000
+    }
+  ]
+}

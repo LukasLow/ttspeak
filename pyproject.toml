@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ttspeak"
+version = "0.1.0"
+description = "Ollama-style local text-to-speech for Apple Silicon (Qwen3-TTS via MLX Audio)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Lukas" }]
+dependencies = []
+keywords = [
+  "tts",
+  "text-to-speech",
+  "speech-synthesis",
+  "qwen3-tts",
+  "mlx",
+  "mlx-audio",
+  "apple-silicon",
+  "macos",
+  "nix",
+  "nix-flake",
+  "home-manager",
+  "ollama",
+  "offline",
+  "local-first",
+  "voice-cloning",
+]
+classifiers = [
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+[project.urls]
+Homepage = "https://github.com/LukasLow/ttspeak"
+Repository = "https://github.com/LukasLow/ttspeak"
+Issues = "https://github.com/LukasLow/ttspeak/issues"
+
+[project.scripts]
+ttspeak = "ttspeak.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ttspeak = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
