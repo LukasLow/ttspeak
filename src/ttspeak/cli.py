@@ -18,6 +18,8 @@ from .speak import SpeakOptions, print_result, speak, voice_label
 from .util import human_size
 
 COMMANDS = {
+    "live",
+    "save",
     "run",
     "pull",
     "list",
@@ -36,7 +38,9 @@ COMMANDS = {
 TOP_HELP = """ttspeak — local text-to-speech, Ollama style.
 
 Usage:
-  ttspeak "Hallo Welt" [flags]
+  ttspeak live "Hallo Welt" [flags]              # stream to speakers
+  ttspeak save -o hallo.mp3 -t "Hallo Welt"      # write a file, no playback
+  ttspeak run MODEL "Hallo Welt" [flags]         # live with an explicit model
   ttspeak pull MODEL [--force]
   ttspeak list | search [QUERY] | show MODEL | rm MODEL
   ttspeak prune --keep MODEL [MODEL ...] --yes
@@ -53,10 +57,13 @@ Synthesis flags:
       --instruct TEXT  free-form style instruction
       --language LANG  de|en|fr|es|it|pt|ru|ja|ko|zh or full name
       --speed FLOAT    0.5 .. 2.0
-  -o, --output FILE    write a file (wav, mp3, flac, ogg, opus, m4a)
-      --play/--no-play play audio (default: on; live streaming without -o)
       --engine ENGINE  mlx (default) or mock (tests/dev)
       --json           machine-readable result
+
+`save` flags:
+  -o, --output FILE    required; wav, mp3, flac, ogg, opus or m4a
+  -t, --text TEXT      required; text to synthesize
+      --play           play the finished file (default: no playback)
 
 Run 'ttspeak COMMAND --help' for command details.
 """
@@ -81,7 +88,13 @@ def _speak_json(result) -> dict[str, Any]:
     }
 
 
-def _add_speak_flags(parser: argparse.ArgumentParser, *, include_model: bool = True) -> None:
+def _add_speak_flags(
+    parser: argparse.ArgumentParser,
+    *,
+    include_model: bool = True,
+    include_output: bool = True,
+    play_mode: str = "both",
+) -> None:
     if include_model:
         parser.add_argument("-m", "--model", help="model id, e.g. voxtral:4b")
     parser.add_argument("--voice", help="preset voice or cloned profile name")
@@ -96,11 +109,18 @@ def _add_speak_flags(parser: argparse.ArgumentParser, *, include_model: bool = T
         help="language code or name (de, en, German, English, ...)",
     )
     parser.add_argument("--speed", type=float, help="speech speed, 0.5 .. 2.0")
-    parser.add_argument("-o", "--output", help="output file (wav, mp3, flac, ogg, opus, m4a)")
-    play = parser.add_mutually_exclusive_group()
-    play.add_argument("--play", dest="play", action="store_true", help="play the audio")
-    play.add_argument("--no-play", dest="play", action="store_false", help="do not play")
-    parser.set_defaults(play=None)
+    if include_output:
+        parser.add_argument("-o", "--output", help="output file (wav, mp3, flac, ogg, opus, m4a)")
+    if play_mode == "both":
+        play = parser.add_mutually_exclusive_group()
+        play.add_argument("--play", dest="play", action="store_true", help="play the audio")
+        play.add_argument("--no-play", dest="play", action="store_false", help="do not play")
+        parser.set_defaults(play=None)
+    elif play_mode == "play":
+        parser.add_argument("--play", dest="play", action="store_true", help="play the finished file")
+        parser.set_defaults(play=False)
+    else:
+        parser.set_defaults(play=True)
     parser.add_argument("--engine", choices=["mlx", "mock"], help="speech backend")
     parser.add_argument("--json", action="store_true", help="print a JSON result")
 
@@ -116,18 +136,40 @@ def _speak_options(args: argparse.Namespace, *, text: str, model: str | None, ex
         emotion=args.emotion,
         instruct=args.instruct,
         play=args.play,
-        output=args.output,
+        output=getattr(args, "output", None),
         engine=args.engine,
     )
 
 
-def _cmd_speak(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(prog="ttspeak", description="Generate speech from text.")
+def _cmd_live(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ttspeak live",
+        description="Stream speech to the speakers while it is generated.",
+    )
     parser.add_argument("text", nargs="+", help="text to speak")
-    _add_speak_flags(parser)
+    _add_speak_flags(parser, include_output=False, play_mode="none")
     args = parser.parse_args(argv)
     text = " ".join(args.text).strip()
     result = speak(_speak_options(args, text=text, model=args.model, explicit=args.model is not None))
+    if args.json:
+        _json_print(_speak_json(result))
+    else:
+        print_result(result)
+    return 0
+
+
+def _cmd_save(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ttspeak save",
+        description="Write speech to a file without live playback.",
+    )
+    parser.add_argument("-o", "--output", required=True, help="output file (wav, mp3, flac, ogg, opus, m4a)")
+    parser.add_argument("-t", "--text", required=True, help="text to synthesize")
+    _add_speak_flags(parser, include_output=False, play_mode="play")
+    args = parser.parse_args(argv)
+    result = speak(
+        _speak_options(args, text=args.text, model=args.model, explicit=args.model is not None)
+    )
     if args.json:
         _json_print(_speak_json(result))
     else:
@@ -625,8 +667,10 @@ def _dispatch(argv: Sequence[str]) -> int:
         return 0
 
     rest = list(argv[1:])
-    if head == "speak":
-        return _cmd_speak(rest)
+    if head in {"live", "speak"}:
+        return _cmd_live(rest)
+    if head == "save":
+        return _cmd_save(rest)
     if head == "run":
         return _cmd_run(rest)
     if head == "pull":
@@ -652,8 +696,10 @@ def _dispatch(argv: Sequence[str]) -> int:
     if head == "doctor":
         return _cmd_doctor(rest)
 
-    # No known command: treat the whole argv as text + synthesis flags.
-    return _cmd_speak(argv)
+    raise UsageError(
+        f"Unknown command '{head}'. Use `ttspeak live \"{head} ...\"` for live "
+        f"speech or `ttspeak save -o out.mp3 -t \"{head} ...\"` for a file."
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

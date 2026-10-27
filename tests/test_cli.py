@@ -11,14 +11,15 @@ def test_version_and_help(run_cli):
     assert "Usage:" in help_result.stdout
 
 
-def test_shortcut_synthesis(run_cli, env):
+def test_save_command(run_cli, env):
     result = run_cli(
+        "save",
+        "-t",
         "Hallo Welt",
         "-m",
         "fake:custom",
         "--engine",
         "mock",
-        "--no-play",
         "-o",
         "out.wav",
     )
@@ -27,19 +28,35 @@ def test_shortcut_synthesis(run_cli, env):
     assert "Wrote" in result.stdout
 
 
-def test_flags_before_text(run_cli, env):
+def test_save_flags_before_text(run_cli, env):
     result = run_cli(
+        "save",
         "--model",
         "fake:custom",
         "--engine",
         "mock",
-        "--no-play",
         "-o",
         "flags.wav",
+        "-t",
         "Hallo",
     )
     assert result.returncode == 0, result.stderr
     assert (env.tmp / "flags.wav").is_file()
+
+
+def test_bare_text_is_removed(run_cli):
+    result = run_cli("Hallo")
+    assert result.returncode == 2
+    assert "Unknown command" in result.stderr
+    assert "ttspeak live" in result.stderr
+    assert "ttspeak save" in result.stderr
+
+
+def test_live_help(run_cli):
+    result = run_cli("live", "--help")
+    assert result.returncode == 0
+    assert "Stream speech" in result.stdout
+    assert "--output" not in result.stdout
 
 
 def test_pull_list_show_rm(run_cli, env):
@@ -95,7 +112,15 @@ def test_config_set_get_list_unset(run_cli):
 
 def test_synthesis_uses_config_model(run_cli, env):
     assert run_cli("config", "set", "model", "fake:custom").returncode == 0
-    result = run_cli("Hallo", "--engine", "mock", "--no-play", "-o", "configured.wav")
+    result = run_cli(
+        "save",
+        "-t",
+        "Hallo",
+        "--engine",
+        "mock",
+        "-o",
+        "configured.wav",
+    )
     assert result.returncode == 0, result.stderr
     assert (env.tmp / "configured.wav").is_file()
 
@@ -108,12 +133,13 @@ def test_run_command(run_cli, env):
 
 def test_json_output(run_cli):
     result = run_cli(
+        "save",
+        "-t",
         "Hallo",
         "-m",
         "fake:custom",
         "--engine",
         "mock",
-        "--no-play",
         "-o",
         "json.wav",
         "--json",

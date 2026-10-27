@@ -13,7 +13,8 @@ a voice and removing them again is manual work.
 (Apple Silicon), installed and configured with Nix / Home Manager.
 
 ```console
-$ ttspeak "Guten Morgen, wie geht es dir?"
+$ ttspeak live "Guten Morgen, wie geht es dir?"
+$ ttspeak save -o hallo.mp3 -t "Guten Morgen, wie geht es dir?"
 $ ttspeak pull voxtral:4b
 $ ttspeak list
 $ ttspeak rm voxtral:4b
@@ -22,7 +23,7 @@ $ ttspeak rm voxtral:4b
 ## Users and use cases
 
 1. Speak a sentence from the terminal with one command, live-streamed by default.
-2. Write a finished WAV or MP3 with `-o` for later use.
+2. Write a finished WAV or MP3 with `save` for later use.
 3. Declaratively install a TTS engine + model + voice through Home Manager.
 4. Test several models and remove the ones that are not needed.
 5. Clone a voice from a reference recording and manage it as a named profile.
@@ -31,8 +32,9 @@ $ ttspeak rm voxtral:4b
 
 | Command | Behaviour |
 |---|---|
-| `ttspeak TEXT...` | Synthesize text. Without `-o` and with playback enabled, stream chunks to the default audio device. With `-o`, write a file (non-streaming) and play it afterwards unless `--no-play`. |
-| `ttspeak run MODEL TEXT...` | Same, with an explicit model. |
+| `ttspeak live TEXT...` | Synthesize text and stream chunks to the default audio device. No file is written. |
+| `ttspeak save -o PATH -t TEXT` | Synthesize a finished file (WAV/MP3/FLAC/OGG/Opus/M4A) without playback. `--play` plays it after writing. |
+| `ttspeak run MODEL TEXT...` | Live with an explicit model; `-o` writes a file and plays it unless `--no-play`. |
 | `ttspeak pull MODEL [--force]` | Download a registry model into the local store, atomically. |
 | `ttspeak list` | Installed models, size, default marker. |
 | `ttspeak search [QUERY]` | Registry models with installed marker. |
@@ -45,8 +47,8 @@ $ ttspeak rm voxtral:4b
 | `ttspeak voice show NAME` | Profile details. |
 | `ttspeak voice prune --keep NAME... [--yes]` | Remove profiles not in the keep list. |
 | `ttspeak config get/set/unset/list` | Mutable user configuration. |
-| `ttspeak runtime install [--python PATH] [--version V]` | Create the isolated MLX runtime venv. |
-| `ttspeak runtime status` | Show runtime interpreter and whether `mlx_audio` imports. |
+| `ttspeak runtime install [--python PATH] [--version V]` | Create or repair the isolated MLX runtime venv. |
+| `ttspeak runtime status` | Show runtime interpreter, `mlx-audio` and `mistral-common` versions. |
 | `ttspeak doctor` | Check platform, store paths, runtime, default model. |
 | `ttspeak version` | Print version. |
 
@@ -56,13 +58,14 @@ $ ttspeak rm voxtral:4b
 - `--voice NAME` — preset speaker or cloned profile (a leading `@` forces profile lookup)
 - `--emotion PRESET` — Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`
 - `--instruct TEXT` — Qwen3 only: free-form style instruction (combines with `--emotion`)
-- `--language NAME|CODE` — `de`/`German`, `en`/`English`, …
+- `--language NAME|CODE` — `de`/`German`, `en`/`English`, `ru`/`Russian`, …
 - `--speed FLOAT` — 0.5–2.0
-- `-o, --output PATH` — write WAV/MP3/FLAC/OGG/Opus/M4A; disables live streaming
-- `--play / --no-play` — live streaming by default when no `-o` is given
+- `save`: `-o, --output PATH` and `-t, --text TEXT` are required; `--play` is optional
+- `live`/`run`: no output path; audio streams live
+- `run`: `-o` writes a file and plays it unless `--no-play`
 - `--engine mock|mlx` — `mock` is for development/tests only
 
-`--` terminates flag parsing so text may start with a dash.
+`live --` terminates flag parsing so text may start with a dash.
 
 ## Storage layout
 
@@ -106,24 +109,26 @@ Voxtral), language `German`, speed `1.0`, play enabled.
   PCM WAV. Communication is JSON in / JSON out over files.
 
 The core CLI has **zero Python dependencies** (standard library only).
-`mlx-audio[tts]` (with `mistral-common[audio]` for Voxtral) lives in the runtime
+`mlx-audio[tts]==0.6.2` and `mistral-common[audio]==1.12.0` live in the runtime
 venv so the Nix package stays small, reproducible and buildable in the sandbox.
 
 ## Model registry (v0.1)
 
-| ID | HF repo | Method |
+All available MLX variants are tracked (23 models):
+
+| Family | IDs | Method |
 |---|---|---|
-| `voxtral:4b` | `mlx-community/Voxtral-4B-TTS-2603-mlx-4bit` | preset voices |
-| `qwen3:0.6b` | `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit` | custom voice |
-| `qwen3:1.7b` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | custom voice |
-| `qwen3:0.6b-base` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit` | voice cloning |
-| `qwen3:1.7b-base` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | voice cloning |
-| `qwen3:1.7b-design` | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit` | voice design |
+| Voxtral 4B | `voxtral:4b` (4-bit), `-6bit`, `-bf16` | preset voices |
+| Qwen3-TTS 0.6B CustomVoice | `qwen3:0.6b` (8-bit), `-4bit`, `-6bit`, `-bf16` | custom voice |
+| Qwen3-TTS 1.7B CustomVoice | `qwen3:1.7b` (8-bit), `-4bit`, `-6bit`, `-bf16` | custom voice |
+| Qwen3-TTS 0.6B Base | `qwen3:0.6b-base` (8-bit), `-4bit`, `-6bit`, `-bf16` | voice cloning |
+| Qwen3-TTS 1.7B Base | `qwen3:1.7b-base` (8-bit), `-4bit`, `-6bit`, `-bf16` | voice cloning |
+| Qwen3-TTS 1.7B VoiceDesign | `qwen3:1.7b-design` (8-bit), `-4bit`, `-6bit`, `-bf16` | voice design |
 
 Voxtral voices: `de_female`, `de_male`, `casual_female`, `casual_male`,
 `cheerful_female`, `neutral_female`, `neutral_male`, plus French, Spanish, Italian,
 Portuguese, Dutch, Arabic and Hindi voices. Languages: English, French, Spanish,
-German, Italian, Portuguese, Dutch, Arabic, Hindi.
+German, Italian, Portuguese, Dutch, Arabic, Hindi. **No Russian.**
 
 Qwen3 speakers: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee.
 Languages: Chinese, English, Japanese, Korean, German, French, Russian, Portuguese,
@@ -148,7 +153,7 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 
 ## Acceptance criteria
 
-1. `ttspeak "Hallo" --engine mock --no-play -o out.wav` creates a valid WAV.
+1. `ttspeak save --engine mock -o out.wav -t "Hallo"` creates a valid WAV.
 2. `pull/list/show/rm/prune` work against a fake local registry with `file://` URLs;
    no network in tests.
 3. Config precedence and emotion→instruct mapping are covered by tests.
@@ -158,10 +163,11 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 7. README documents Home Manager usage, model management and removal.
 8. Home Manager `onActivation.cleanup = "zap"` reconciles models and voices
    declaratively, including automatic removal of undeclared entries.
-9. Without `-o`, MLX synthesis streams chunks to the audio device before the full
-   text is generated; `request.stream` is true and `SpeakResult.output` is null.
-10. With `-o`, generation is non-streaming and MP3 output is transcoded via ffmpeg;
+9. `ttspeak live` streams chunks to the audio device before the full text is
+   generated; `SpeakResult.output` is null.
+10. `ttspeak save -o out.mp3 -t ...` is non-streaming and transcodes via ffmpeg;
     missing ffmpeg fails before model loading.
+11. `ttspeak "Hallo"` is rejected with a hint to use `live` or `save`.
 
 ## Boundaries
 

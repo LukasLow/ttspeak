@@ -12,7 +12,8 @@ offline through [MLX Audio](https://github.com/Blaizzy/mlx-audio), and installs
 declaratively with Nix / Home Manager. Live streaming and MP3 output are built in.
 
 ```console
-$ ttspeak "Guten Morgen, wie geht es dir?"
+$ ttspeak live "Guten Morgen, wie geht es dir?"
+$ ttspeak save -o hallo.mp3 -t "Guten Morgen, wie geht es dir?"
 $ ttspeak pull voxtral:4b
 $ ttspeak list
 $ ttspeak rm voxtral:4b
@@ -25,19 +26,21 @@ removed without touching the installed software. Speech synthesis runs with
 
 ## Why ttspeak?
 
-- **Ollama-like UX for TTS.** `ttspeak "Text"`, `pull`, `list`, `show`, `rm`,
-  `prune`, `run` — familiar commands instead of Python snippets.
+- **Ollama-like UX for TTS.** `ttspeak live`, `save`, `pull`, `list`, `show`, `rm`,
+  `prune` — familiar commands instead of Python snippets.
 - **Local-first on Apple Silicon.** Voxtral and Qwen3-TTS through MLX Audio,
   optimized for M-series unified memory. No API key, no account, no upload.
-- **Live audio by default.** Without `-o`, audio is streamed to the speakers while
-  it is being generated. With `-o`, you get a finished WAV or MP3 file.
+- **Live audio by default.** `ttspeak live "Text"` streams to the speakers while it
+  is being generated. `ttspeak save -o out.mp3 -t "Text"` writes a finished file
+  without playback.
 - **Declarative Nix / Home Manager.** Install the CLI, runtime, models and cloned
   voices from one configuration; `onActivation.cleanup = "zap"` removes everything
   that is no longer declared — the same idea as `homebrew.onActivation.cleanup`.
 - **Small Nix package.** The CLI is pure Python standard library. `mlx-audio`
   lives in an isolated runtime venv, so the Nix build stays hermetic and fast.
-- **Model and voice management.** Voxtral 4B with 20 voices and nine languages,
-  five Qwen3-TTS variants, emotion/style instructions and cloned voice profiles.
+- **Model and voice management.** Voxtral 4B (4/6-bit/bf16), all Qwen3-TTS
+  variants (0.6B/1.7B, Base/CustomVoice/VoiceDesign, 4/6/8-bit/bf16), emotion/style
+  instructions and cloned voice profiles.
 
 ## Requirements
 
@@ -171,7 +174,7 @@ the single source of truth. Network failures only warn by default; set
 ```console
 $ nix run github:LukasLow/ttspeak -- runtime install
 $ nix run github:LukasLow/ttspeak -- pull voxtral:4b
-$ nix run github:LukasLow/ttspeak -- "Hallo, das ist ein lokaler TTS-Test."
+$ nix run github:LukasLow/ttspeak -- live "Hallo, das ist ein lokaler TTS-Test."
 ```
 
 For permanent use, install the CLI into a profile:
@@ -180,25 +183,26 @@ For permanent use, install the CLI into a profile:
 $ nix profile install github:LukasLow/ttspeak
 $ ttspeak runtime install
 $ ttspeak pull voxtral:4b
-$ ttspeak "Hallo, das ist ein lokaler TTS-Test."       # live streaming
-$ ttspeak "Hallo" -o hallo.mp3 --no-play               # finished MP3 file
+$ ttspeak live "Hallo, das ist ein lokaler TTS-Test."
+$ ttspeak save -o hallo.mp3 -t "Hallo, das ist ein lokaler TTS-Test."
 ```
 
 ## Commands
 
 ```console
-ttspeak "Text" [flags]                  # speak (live streaming by default)
-ttspeak run voxtral:4b "Text"           # explicit model
-ttspeak pull voxtral:4b                 # download weights
-ttspeak list                            # installed models
-ttspeak search voxtral                 # registry
-ttspeak show voxtral:4b                 # details, voices, languages
-ttspeak rm voxtral:4b                   # remove weights (asks)
-ttspeak prune --keep voxtral:4b --yes   # remove everything else
-ttspeak voices                          # preset + cloned voices
+ttspeak live "Text" [flags]                  # stream to speakers
+ttspeak save -o hallo.mp3 -t "Text" [flags]  # write a file, no playback
+ttspeak run voxtral:4b "Text"                # live with an explicit model
+ttspeak pull voxtral:4b                      # download weights
+ttspeak list                                 # installed models
+ttspeak search voxtral                       # all registry variants
+ttspeak show voxtral:4b                      # details, voices, languages
+ttspeak rm voxtral:4b                        # remove weights (asks)
+ttspeak prune --keep voxtral:4b --yes        # remove everything else
+ttspeak voices                               # preset + cloned voices
 ttspeak voice add NAME --audio ref.wav --text "transcript" --model qwen3:0.6b-base
 ttspeak voice rm NAME
-ttspeak voice prune --keep NAME --yes   # remove undeclared profiles
+ttspeak voice prune --keep NAME --yes         # remove undeclared profiles
 ttspeak config set voice de_male
 ttspeak config list
 ttspeak runtime install
@@ -208,28 +212,30 @@ ttspeak doctor
 
 ### Synthesis flags
 
+`live` and `run` stream by default. `save` never plays unless `--play` is given.
+
 | Flag | Meaning |
 |---|---|
 | `-m, --model ID` | Model id (default: `voxtral:4b`). |
 | `--voice NAME` | Preset voice or cloned profile (`@name` forces profile lookup). |
 | `--emotion NAME` | Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`. |
 | `--instruct TEXT` | Qwen3 only: free-form style instruction, combined with `--emotion`. |
-| `--language LANG` | `de`/`German`, `en`/`English`, `fr`, `es`, `it`, `pt`, `nl`, `ar`, `hi` (model-dependent). |
+| `--language LANG` | `de`/`German`, `en`/`English`, `ru`/`Russian`, … (model-dependent). |
 | `--speed FLOAT` | `0.5` … `2.0` (model-dependent). |
-| `-o, --output FILE` | Write a file instead of streaming. Formats: WAV, MP3, FLAC, OGG, Opus, M4A. |
-| `--play` / `--no-play` | Playback (default: on). Without `-o`, playback is live streaming. |
 | `--engine mlx\|mock` | Backend. `mock` writes a tone without MLX. |
 | `--json` | Machine-readable result. |
+
+`save` requires `-o/--output` and `-t/--text`. Formats: WAV, MP3, FLAC, OGG,
+Opus, M4A. `--play` plays the finished file after writing.
 
 Examples:
 
 ```console
-ttspeak "Das ist unglaublich!" --emotion excited          # Qwen3 model
-ttspeak "Willkommen zurück." --voice de_female -o willkommen.wav
-ttspeak "Bitte langsam." --speed 0.85 --instruct "ruhig und warm"
-ttspeak "Hallo" --voice @lukas
-ttspeak "Langer Text ..."                                 # streams live, no file
-ttspeak "Langer Text ..." -o lang.mp3 --no-play            # non-streaming MP3
+ttspeak live "Das ist unglaublich!" --emotion excited       # Qwen3 model
+ttspeak live "Willkommen zurück." --voice de_female
+ttspeak save -o willkommen.mp3 -t "Willkommen zurück." --voice de_female
+ttspeak save -o hallo.wav -t "Hallo"                        # save only, no playback
+ttspeak live "Hallo" --voice @lukas
 ```
 
 Without `-o`, audio is streamed to the speakers as it is generated. With `-o`, the
@@ -239,14 +245,18 @@ timestamped WAV under `~/Library/Application Support/ttspeak/output/` on macOS.
 
 ## Models
 
-| ID | Size | Purpose |
+The registry tracks **all** available MLX variants of Voxtral and Qwen3-TTS.
+`ttspeak search` lists them; the base id is the 8-bit variant for Qwen3 and the
+4-bit variant for Voxtral.
+
+| Family | IDs | Size |
 |---|---|---|
-| `voxtral:4b` | ~2.5 GB | **Default.** Voxtral 4B TTS, 4-bit; 20 voices, 9 languages. |
-| `qwen3:0.6b` | ~2.0 GB | Qwen3-TTS preset voices + emotion control. |
-| `qwen3:1.7b` | ~3.1 GB | Qwen3-TTS with better emotion control. |
-| `qwen3:0.6b-base` | ~2.0 GB | Qwen3-TTS voice cloning. |
-| `qwen3:1.7b-base` | ~3.1 GB | Higher-quality cloning. |
-| `qwen3:1.7b-design` | ~3.1 GB | Design a voice from a text description. |
+| Voxtral 4B TTS | `voxtral:4b` (4-bit), `voxtral:4b-6bit`, `voxtral:4b-bf16` | ~2.5 / 3.5 / 8 GB |
+| Qwen3-TTS 0.6B CustomVoice | `qwen3:0.6b`, `qwen3:0.6b-4bit`, `qwen3:0.6b-6bit`, `qwen3:0.6b-bf16` | ~2 GB |
+| Qwen3-TTS 1.7B CustomVoice | `qwen3:1.7b`, `qwen3:1.7b-4bit`, `qwen3:1.7b-6bit`, `qwen3:1.7b-bf16` | ~3–3.5 GB |
+| Qwen3-TTS 0.6B Base (cloning) | `qwen3:0.6b-base`, `-4bit`, `-6bit`, `-bf16` | ~2 GB |
+| Qwen3-TTS 1.7B Base (cloning) | `qwen3:1.7b-base`, `-4bit`, `-6bit`, `-bf16` | ~3–3.5 GB |
+| Qwen3-TTS 1.7B VoiceDesign | `qwen3:1.7b-design`, `-4bit`, `-6bit`, `-bf16` | ~3–3.5 GB |
 
 Voxtral voices: `de_female`, `de_male`, `casual_female`, `casual_male`,
 `cheerful_female`, `neutral_female`, `neutral_male`, `fr_female`, `fr_male`,
@@ -259,23 +269,24 @@ Qwen3 speakers: `Vivian`, `Serena`, `Uncle_Fu`, `Dylan`, `Eric`, `Ryan`, `Aiden`
 `voxtral` is an alias for `voxtral:4b`, `qwen3` for `qwen3:0.6b`. Full Hugging
 Face repo ids are accepted too.
 
-### German text-to-speech, offline
+### German, English and Russian
 
-German is a first-class synthesis language. Voxtral ships dedicated German voices:
-`de_female` is the default, `de_male` is also available. Qwen3-TTS preset voices
-are multilingual as well. Use `--language de` (or `language = "German"` in Home
-Manager). Voice cloning works with a German reference recording and its exact
-transcript.
+| Language | Voxtral 4B | Qwen3-TTS |
+|---|---|---|
+| German | Yes (`de_female`, `de_male`, …) | Yes (all 9 voices) |
+| English | Yes (all 20 voices) | Yes (all languages/voices) |
+| Russian | **No** (not supported by Voxtral TTS) | Yes |
 
-German sentences in this README are example *input text*, not documentation
-language; the repository documentation and comments are English.
+Use `--language de`, `--language en`, `--language ru` (or `German`, `English`,
+`Russian`). German sentences in this README are example *input text*, not
+documentation language; the repository documentation and comments are English.
 
 ## Voice cloning
 
 ```console
 $ ttspeak pull qwen3:0.6b-base
 $ ttspeak voice add lukas --audio ~/stimme.wav --text "Der exakte Text der Aufnahme."
-$ ttspeak "Das ist meine geklonte Stimme." --voice lukas
+$ ttspeak live "Das ist meine geklonte Stimme." --voice lukas
 ```
 
 Voice cloning is a Qwen3-TTS Base feature; Voxtral uses its 20 preset voices.
@@ -292,7 +303,7 @@ under `programs.ttspeak.voices` so it is recreated reproducibly.
   models/<id>/         weights + .ttspeak-manifest.json
   voices/<name>/       profile.json + reference.wav
   runtime/venv/        isolated mlx-audio environment
-  output/              default generated WAVs
+  output/              fallback audio when `run` is used without a file
 ```
 
 - `ttspeak rm MODEL` deletes one model's weights.
@@ -362,8 +373,8 @@ $ nix run .# -- "Hallo" --engine mock --no-play -o /tmp/hallo.wav
 
 - MLX synthesis only on macOS Apple Silicon.
 - Non-WAV output requires `ffmpeg` (installed by the Home Manager module by default).
-- Live streaming is only used when no `-o` is given; file output is deliberately
-  non-streaming.
+- `live` streams; `save` writes a file. There is no bare `ttspeak "Text"` shortcut.
+- Voxtral TTS does not support Russian; use Qwen3-TTS for Russian.
 - Emotion/style instructions are model-dependent and available on Qwen3-TTS;
   Voxtral uses its preset voices instead.
 - No HTTP server, no non-MLX engines.

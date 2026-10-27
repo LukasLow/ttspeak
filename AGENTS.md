@@ -24,6 +24,11 @@ available for emotion control and voice cloning.
 
 - The installed CLI (`src/ttspeak`) must stay **Python standard library only**.
   Do not add runtime dependencies to `pyproject.toml`.
+- CLI UX: `ttspeak live "Text"` streams to the speakers; `ttspeak save -o FILE
+  -t "Text"` writes a file without playback. Do not re-introduce a bare
+  `ttspeak "Text"` shortcut.
+- The registry tracks all available MLX variants of Voxtral and Qwen3-TTS;
+  `ttspeak search` is the source of truth.
 - `mlx-audio`, MLX and model weights are runtime data, not part of the Nix
   package or the Nix store.
 - Model weights live under `$TTSPEAK_HOME/models`; generated audio under
