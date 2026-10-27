@@ -22,6 +22,18 @@ def test_aliases_and_repo_lookup(env, monkeypatch):
     assert resolve_model("mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", models).id == "qwen3:0.6b"
 
 
+def test_registry_tracks_all_variants(env, monkeypatch):
+    monkeypatch.delenv("TTSPEAK_REGISTRY", raising=False)
+    models = load_registry()
+    assert len(models) == 23
+    assert "voxtral:4b" in models
+    assert "voxtral:4b-6bit" in models
+    assert "voxtral:4b-bf16" in models
+    assert "qwen3:1.7b-base-4bit" in models
+    assert "qwen3:1.7b-design-bf16" in models
+    assert "qwen3:0.6b-4bit" in models
+
+
 def test_unknown_model(env, monkeypatch):
     monkeypatch.delenv("TTSPEAK_REGISTRY", raising=False)
     with pytest.raises(ModelNotFound) as exc:
