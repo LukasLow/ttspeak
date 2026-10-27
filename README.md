@@ -365,6 +365,21 @@ $ ./result/bin/ttspeak --version
 The test suite is hermetic: it uses a fake registry with `file://` URLs and the `mock`
 engine, so no network, model download or GPU is required.
 
+### Voice tournament (local dev helper)
+
+The generated audio and HTML stay out of git (`tournament/` is ignored).
+
+```console
+$ nix develop --command python tools/tournament.py       # audio + voices.html
+$ nix develop --command python tools/blind_tournament.py # six blind A/B brackets
+$ open tournament/blind.html
+```
+
+The blind page compares two samples at a time, hides names until a bracket is
+complete, and produces a copyable result text for German/English/Russian female
+and male winners. Voxtral has no Russian support, so the Russian brackets are
+Qwen3-TTS only.
+
 ```console
 $ nix run .# -- "Hallo" --engine mock --no-play -o /tmp/hallo.wav
 ```
