@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from .constants import (
     CONFIG_KEYS,
     EMOTION_INSTRUCTS,
     FLOAT_KEYS,
+    normalize_gender,
     normalize_language,
 )
 from .errors import ConfigError, UsageError
@@ -22,6 +24,8 @@ ENV_KEYS = {
     "TTSPEAK_MODEL": "model",
     "TTSPEAK_VOICE": "voice",
     "TTSPEAK_LANGUAGE": "language",
+    "TTSPEAK_DEFAULT_GENDER": "default_gender",
+    "TTSPEAK_VOICES": "voices",
     "TTSPEAK_SPEED": "speed",
     "TTSPEAK_EMOTION": "emotion",
     "TTSPEAK_INSTRUCT": "instruct",
@@ -30,6 +34,37 @@ ENV_KEYS = {
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
+
+
+def _coerce_voices(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"'voices' expects a JSON object, got '{value}'.") from exc
+    if not isinstance(value, dict):
+        raise ConfigError("'voices' expects an object mapping aliases to voices.")
+    result: dict[str, Any] = {}
+    for name, entry in value.items():
+        alias = str(name).strip()
+        if not alias:
+            raise ConfigError("Voice alias names must not be empty.")
+        if isinstance(entry, str):
+            target = entry.strip()
+            if not target:
+                raise ConfigError(f"Voice alias '{alias}' must point to a non-empty alias.")
+            result[alias] = target
+            continue
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"Voice '{alias}' must be an alias string or an object with model and voice."
+            )
+        model = str(entry.get("model") or "").strip()
+        voice = str(entry.get("voice") or "").strip()
+        if not model or not voice:
+            raise ConfigError(f"Voice '{alias}' needs both 'model' and 'voice'.")
+        result[alias] = {"model": model, "voice": voice}
+    return result
 
 
 def _coerce(key: str, value: Any) -> Any:
@@ -58,9 +93,21 @@ def _coerce(key: str, value: Any) -> Any:
             raise ConfigError(f"'{key}' must be between 0.5 and 2.0.")
         return number
 
+    if key == "voices":
+        return _coerce_voices(value)
+
+    if key == "default_gender":
+        try:
+            return normalize_gender(str(value))
+        except UsageError as exc:
+            raise ConfigError(str(exc)) from exc
+
     text = str(value).strip()
     if key == "language":
-        return normalize_language(text)
+        try:
+            return normalize_language(text, allow_auto=True)
+        except UsageError as exc:
+            raise ConfigError(str(exc)) from exc
     if key == "emotion":
         if not text:
             return None
@@ -162,4 +209,6 @@ def render_value(value: Any) -> str:
         return "true" if value else "false"
     if value is None:
         return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return str(value)

@@ -10,7 +10,9 @@ from ttspeak.errors import ConfigError, UsageError
 def test_builtin_defaults(env):
     effective = config.load_effective()
     assert effective["model"] == BUILTIN_DEFAULTS["model"]
-    assert effective["language"] == "German"
+    assert effective["language"] == "auto"
+    assert effective["default_gender"] == "female"
+    assert effective["voices"] == {}
     assert effective["play"] is True
 
 
@@ -43,6 +45,36 @@ def test_language_is_normalized(env):
     value = config.set_user_value("language", "de-DE")
     assert value == "German"
     assert config.load_effective()["language"] == "German"
+
+
+def test_auto_language_and_nested_voices(env, monkeypatch):
+    defaults = env.root / "defaults.json"
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.write_text(
+        json.dumps(
+            {
+                "language": "auto",
+                "default_gender": "female",
+                "voices": {
+                    "de": "de_female",
+                    "de_female": {"model": "voxtral:4b", "voice": "de_female"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TTSPEAK_DEFAULTS", str(defaults))
+    effective = config.load_effective()
+    assert effective["language"] == "auto"
+    assert effective["voices"]["de"] == "de_female"
+    assert effective["voices"]["de_female"]["voice"] == "de_female"
+
+
+def test_invalid_voices_and_gender(env):
+    with pytest.raises(ConfigError):
+        config.set_user_value("voices", {"de": {"model": "voxtral:4b"}})
+    with pytest.raises(ConfigError):
+        config.set_user_value("default_gender", "neutral")
 
 
 def test_invalid_values(env):

@@ -6,10 +6,15 @@ from .errors import UsageError
 
 APP_VERSION = "0.1.0"
 
+AUTO_LANGUAGE = "auto"
+GENDERS = ("female", "male")
+
 BUILTIN_DEFAULTS: dict[str, object] = {
     "model": "voxtral:4b",
     "voice": None,
-    "language": "German",
+    "language": AUTO_LANGUAGE,
+    "default_gender": "female",
+    "voices": {},
     "speed": 1.0,
     "play": True,
     "emotion": None,
@@ -57,11 +62,15 @@ PRESET_VOICES: tuple[str, ...] = (
 )
 
 
-def normalize_language(value: str) -> str:
+def normalize_language(value: str, *, allow_auto: bool = False) -> str:
     """Map ``de``, ``DE``, ``de-DE`` or ``German`` to the canonical name."""
     raw = value.strip()
     if not raw:
         raise UsageError("Language must not be empty.")
+    if raw.lower() == AUTO_LANGUAGE:
+        if allow_auto:
+            return AUTO_LANGUAGE
+        raise UsageError("'auto' is only valid as a configured language, not as a segment language.")
     if raw.lower() in LANGUAGE_NAMES:
         return LANGUAGE_NAMES[raw.lower()]
     prefix = raw.split("-")[0].split("_")[0].lower()
@@ -72,6 +81,13 @@ def normalize_language(value: str) -> str:
             return name
     supported = ", ".join(f"{code}={name}" for code, name in LANGUAGE_NAMES.items())
     raise UsageError(f"Unsupported language '{value}'. Supported: {supported}.")
+
+
+def normalize_gender(value: str) -> str:
+    raw = value.strip().lower()
+    if raw not in GENDERS:
+        raise UsageError(f"Unsupported gender '{value}'. Choose one of: {', '.join(GENDERS)}.")
+    return raw
 
 
 def compose_instruct(emotion: str | None, instruct: str | None) -> str | None:

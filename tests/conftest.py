@@ -20,6 +20,8 @@ ENV_KEYS = [
     "TTSPEAK_MODEL",
     "TTSPEAK_VOICE",
     "TTSPEAK_LANGUAGE",
+    "TTSPEAK_DEFAULT_GENDER",
+    "TTSPEAK_VOICES",
     "TTSPEAK_EMOTION",
     "TTSPEAK_INSTRUCT",
     "TTSPEAK_SPEED",
@@ -65,7 +67,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     broken_entry = _file_entry(broken)
     broken_entry["sha256"] = "0" * 64
 
-    languages = ["German", "English", "French"]
+    languages = ["German", "English", "French", "Russian"]
     registry = {
         "version": 1,
         "models": [

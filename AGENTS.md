@@ -17,8 +17,8 @@
 `ttspeak` is an Ollama-style CLI for local text-to-speech on macOS Apple Silicon.
 It manages Voxtral and Qwen3-TTS model weights plus cloned voice profiles, and
 delegates synthesis to MLX Audio in an isolated runtime venv. The default model
-is Voxtral 4B (4-bit) with the German `de_female` voice; Qwen3-TTS remains
-available for emotion control and voice cloning.
+is Voxtral 4B (4-bit); language detection defaults to `auto` (German/English/
+Russian). Qwen3-TTS remains available for Russian, emotion control and cloning.
 
 ## Architecture rules
 
@@ -27,6 +27,14 @@ available for emotion control and voice cloning.
 - CLI UX: `ttspeak live "Text"` streams to the speakers; `ttspeak save -o FILE
   -t "Text"` writes a file without playback. Do not re-introduce a bare
   `ttspeak "Text"` shortcut.
+- Every language has its own configured voice and model. The alias chain is
+  `de -> de_female -> { model, voice }`; `de_male` remains explicit. The generic
+  fallback is `xx_<default_gender>`; female is a config default, not a global rule.
+- `language = "auto"` detects de/en/ru per sentence and script run. Mixed input
+  must produce one saved file and one sequential live stream — never one file per
+  language segment.
+- `settings.voices` is nested data and must survive the Home Manager
+  `TTSPEAK_DEFAULTS` JSON export.
 - The registry tracks all available MLX variants of Voxtral and Qwen3-TTS;
   `ttspeak search` is the source of truth.
 - `mlx-audio`, MLX and model weights are runtime data, not part of the Nix

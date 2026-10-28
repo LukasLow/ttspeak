@@ -52,10 +52,10 @@ Usage:
 
 Synthesis flags:
   -m, --model ID       model id (default: config / voxtral:4b)
-      --voice NAME     preset voice or cloned profile
+  -v, --voice NAME     language alias (de, en, ru), preset voice or cloned profile
       --emotion NAME   neutral|happy|sad|angry|excited|calm|serious|whisper
       --instruct TEXT  free-form style instruction
-      --language LANG  de|en|fr|es|it|pt|ru|ja|ko|zh or full name
+      --language LANG  auto (default), or de|en|fr|es|it|pt|ru|ja|ko|zh / full name
       --speed FLOAT    0.5 .. 2.0
       --engine ENGINE  mlx (default) or mock (tests/dev)
       --json           machine-readable result
@@ -74,6 +74,7 @@ def _json_print(data: Any) -> None:
 
 
 def _speak_json(result) -> dict[str, Any]:
+    models = list(dict.fromkeys(segment.plan.spec.id for segment in result.segments))
     return {
         "output": str(result.output) if result.output else None,
         "streamed": result.result.streamed,
@@ -81,10 +82,22 @@ def _speak_json(result) -> dict[str, Any]:
         "duration": result.result.duration,
         "sample_rate": result.result.sample_rate,
         "model": result.spec.id,
+        "models": models,
         "voice": voice_label(result),
         "language": result.language,
+        "languages": result.languages,
         "speed": result.speed,
         "engine": result.engine,
+        "segments": [
+            {
+                "text": segment.plan.text,
+                "language": segment.plan.language,
+                "model": segment.plan.spec.id,
+                "voice": segment.plan.speaker or segment.plan.voice_alias or "-",
+                "duration": segment.result.duration,
+            }
+            for segment in result.segments
+        ],
     }
 
 
@@ -97,7 +110,7 @@ def _add_speak_flags(
 ) -> None:
     if include_model:
         parser.add_argument("-m", "--model", help="model id, e.g. voxtral:4b")
-    parser.add_argument("--voice", help="preset voice or cloned profile name")
+    parser.add_argument("-v", "--voice", help="language alias, preset voice or cloned profile")
     parser.add_argument(
         "--emotion",
         choices=list(EMOTION_INSTRUCTS),
@@ -106,7 +119,7 @@ def _add_speak_flags(
     parser.add_argument("--instruct", help="free-form style instruction")
     parser.add_argument(
         "--language",
-        help="language code or name (de, en, German, English, ...)",
+        help="language code or name, or 'auto' (default)",
     )
     parser.add_argument("--speed", type=float, help="speech speed, 0.5 .. 2.0")
     if include_output:
@@ -540,7 +553,7 @@ def _cmd_config(argv: Sequence[str]) -> int:
         if args.key == "model":
             value = resolve_model(value).id
         elif args.key == "language":
-            value = normalize_language(value)
+            value = normalize_language(value, allow_auto=True)
         saved = config.set_user_value(args.key, value)
         print(f"{args.key} = {config.render_value(saved)}")
         return 0

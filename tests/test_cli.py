@@ -216,3 +216,45 @@ def test_unknown_model_is_a_clean_error(run_cli):
     assert result.returncode == 1
     assert "error:" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_config_accepts_auto_language(run_cli):
+    result = run_cli("config", "set", "language", "auto")
+    assert result.returncode == 0, result.stderr
+    assert run_cli("config", "get", "language").stdout.strip() == "auto"
+
+
+def test_cli_auto_voice_aliases_and_json(run_cli, tmp_path, monkeypatch, env):
+    defaults = tmp_path / "defaults.json"
+    defaults.write_text(
+        json.dumps(
+            {
+                "model": "fake:custom",
+                "language": "auto",
+                "default_gender": "female",
+                "voices": {
+                    "de": "de_female",
+                    "de_female": {"model": "fake:custom", "voice": "Serena"},
+                    "en": "en_female",
+                    "en_female": {"model": "fake:custom", "voice": "Ryan"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TTSPEAK_DEFAULTS", str(defaults))
+    result = run_cli(
+        "save",
+        "-t",
+        "Guten Abend. Good evening.",
+        "-o",
+        "mixed.wav",
+        "--engine",
+        "mock",
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["languages"] == ["German", "English"]
+    assert [segment["voice"] for segment in data["segments"]] == ["Serena", "Ryan"]
+    assert (env.tmp / "mixed.wav").is_file()

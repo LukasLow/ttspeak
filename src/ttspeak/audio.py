@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import wave
 from pathlib import Path
 
 from .errors import EngineError, UsageError
@@ -75,3 +76,50 @@ def transcode(wav: Path, target: Path, fmt: str) -> Path:
     finally:
         wav.unlink(missing_ok=True)
     return target
+
+
+def concat_wavs(paths: list[Path], target: Path, *, gap_seconds: float = 0.08) -> float:
+    """Concatenate mono/stereo PCM WAVs into one file and return its duration."""
+    if not paths:
+        raise EngineError("No audio segments to concatenate.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    params: tuple[int, int, int] | None = None
+    frames: list[bytes] = []
+    total_frames = 0
+    for path in paths:
+        try:
+            with wave.open(str(path), "rb") as handle:
+                current = (
+                    handle.getnchannels(),
+                    handle.getsampwidth(),
+                    handle.getframerate(),
+                )
+                if params is None:
+                    params = current
+                elif current != params:
+                    raise EngineError(
+                        f"Cannot concatenate {path}: WAV format differs from the first segment."
+                    )
+                data = handle.readframes(handle.getnframes())
+                frames.append(data)
+                total_frames += handle.getnframes()
+        except (OSError, wave.Error) as exc:
+            raise EngineError(f"Cannot read WAV segment {path}: {exc}") from exc
+
+    assert params is not None
+    channels, sample_width, rate = params
+    gap_frames = max(0, int(gap_seconds * rate))
+    gap = b"\x00" * (gap_frames * channels * sample_width)
+
+    with wave.open(str(target), "wb") as handle:
+        handle.setnchannels(channels)
+        handle.setsampwidth(sample_width)
+        handle.setframerate(rate)
+        for index, data in enumerate(frames):
+            if index and gap:
+                handle.writeframes(gap)
+                total_frames += gap_frames
+            handle.writeframes(data)
+
+    return total_frames / rate if rate else 0.0

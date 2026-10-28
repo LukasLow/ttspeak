@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import wave
 
@@ -391,3 +392,103 @@ def test_output_without_suffix_gets_wav(env, tmp_path):
     )
     assert result.output == tmp_path / "audio.wav"
     assert result.output.is_file()
+
+
+def _configured_voices(monkeypatch, tmp_path, data):
+    defaults = tmp_path / "defaults.json"
+    defaults.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setenv("TTSPEAK_DEFAULTS", str(defaults))
+
+
+def _voice_defaults():
+    return {
+        "model": "fake:custom",
+        "language": "auto",
+        "default_gender": "female",
+        "voices": {
+            "de": "de_female",
+            "de_female": {"model": "fake:custom", "voice": "Serena"},
+            "en": "en_female",
+            "en_female": {"model": "fake:custom", "voice": "Ryan"},
+            "ru": "ru_female",
+            "ru_female": {"model": "fake:custom", "voice": "Serena"},
+        },
+    }
+
+
+def test_auto_segments_use_configured_voices_and_one_file(env, tmp_path, monkeypatch):
+    _configured_voices(monkeypatch, tmp_path, _voice_defaults())
+    output = tmp_path / "mixed.wav"
+    result = speak(
+        SpeakOptions(
+            text="Guten Abend. Good evening. Добрый вечер.",
+            play=False,
+            output=str(output),
+            engine="mock",
+        )
+    )
+    assert output.is_file()
+    assert result.languages == ["German", "English", "Russian"]
+    assert [segment.plan.speaker for segment in result.segments] == [
+        "Serena",
+        "Ryan",
+        "Serena",
+    ]
+    assert [segment.plan.voice_alias for segment in result.segments] == [
+        "de_female",
+        "en_female",
+        "ru_female",
+    ]
+    assert result.result.duration > 0
+
+
+def test_explicit_voice_alias_forces_one_voice(env, tmp_path, monkeypatch):
+    _configured_voices(monkeypatch, tmp_path, _voice_defaults())
+    result = speak(
+        SpeakOptions(
+            text="Good evening. Guten Abend.",
+            voice="de",
+            play=False,
+            output=str(tmp_path / "alias.wav"),
+            engine="mock",
+        )
+    )
+    assert len(result.segments) == 2
+    assert {segment.plan.spec.id for segment in result.segments} == {"fake:custom"}
+    assert {segment.plan.speaker for segment in result.segments} == {"Serena"}
+
+
+def test_live_multi_language_uses_one_stream_per_segment(env, monkeypatch, tmp_path):
+    _configured_voices(monkeypatch, tmp_path, _voice_defaults())
+    store.pull_model("fake:custom", progress=quiet_progress())
+    requests = []
+
+    class FakeMlx:
+        def __init__(self):
+            pass
+
+        def synthesize(self, request):
+            requests.append(request)
+            return SynthesisResult(
+                output=None,
+                duration=1.0,
+                sample_rate=24000,
+                chunks=2,
+                streamed=True,
+            )
+
+    monkeypatch.setattr("ttspeak.engines.mlx.MlxEngine", FakeMlx)
+    monkeypatch.setattr(speak_module, "play_audio", lambda path: pytest.fail("double playback"))
+    result = speak(
+        SpeakOptions(
+            text="Guten Abend. Good evening. Добрый вечер.",
+            play=True,
+            engine="mlx",
+        )
+    )
+    assert len(requests) == 3
+    assert all(request.stream is True and request.output is None for request in requests)
+    assert [request.language for request in requests] == ["German", "English", "Russian"]
+    assert result.result.streamed is True
+    assert result.output is None
+    assert result.result.duration == 3.0

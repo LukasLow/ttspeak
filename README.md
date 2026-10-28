@@ -47,7 +47,7 @@ removed without touching the installed software. Speech synthesis runs with
 - macOS on Apple Silicon (M1/M2/M3/M4/M5) for MLX synthesis.
 - Nix with flakes and Home Manager (recommended), or Python 3.10+ for a manual
   install.
-- ~2.5 GB disk for `voxtral:4b`, ~2 GB for `qwen3:0.6b`.
+- ~2.5 GB disk for `voxtral:4b`, ~3.1 GB for `qwen3:1.7b`.
 - `ffmpeg` for MP3/FLAC/OGG/Opus/M4A output (the Home Manager module installs it).
 
 The `mock` engine works everywhere and is used by the test suite; Linux users can
@@ -95,15 +95,32 @@ The examples below match a nix-darwin setup with `home-manager.sharedModules`
         # runtime; the user config has the final say.
         settings = {
           model = "voxtral:4b";
-          voice = "de_female";
-          language = "German";
+          language = "auto";
+          default_gender = "female";
           speed = 1.0;
+
+          # Each language has its own voice. A short alias points at the
+          # concrete voice, which points at the model:
+          #   de -> de_female -> { model = "voxtral:4b"; voice = "de_female"; }
+          voices = {
+            de = "de_female";
+            de_female = { model = "voxtral:4b"; voice = "de_female"; };
+            de_male = { model = "voxtral:4b"; voice = "de_male"; };
+
+            en = "en_female";
+            en_female = { model = "voxtral:4b"; voice = "it_female"; };
+            en_male = { model = "voxtral:4b"; voice = "casual_male"; };
+
+            ru = "ru_female";
+            ru_female = { model = "qwen3:1.7b"; voice = "Sohee"; };
+            ru_male = { model = "qwen3:1.7b"; voice = "Dylan"; };
+          };
         };
 
         # Installed on switch (idempotent, only when missing).
         models = [
           "voxtral:4b"
-          "qwen3:0.6b-base"
+          "qwen3:1.7b"
         ];
 
         # Optional: declare a cloned voice. Its base model is pulled
@@ -139,6 +156,13 @@ The examples below match a nix-darwin setup with `home-manager.sharedModules`
 Then rebuild as usual (`up-darwin` / `darwin-rebuild switch`). On activation
 ttspeak installs the isolated MLX runtime if needed, pulls the declared models and
 creates the declared voice profiles.
+
+`settings.voices` is a flat alias map: a short language alias points at a concrete
+voice, and the concrete voice points at a model. `de -> de_female -> voxtral:4b /
+de_female` is the same pattern for every language. If `de` is not declared, the
+generic fallback is `de_<default_gender>`; `default_gender` is only a fallback and
+not a global rule. Use `de_male`, `en_male`, `ru_male` for the male variants.
+The `settings` option accepts nested attrsets and lists for this mapping.
 
 ### What `cleanup = "zap"` does
 
@@ -203,6 +227,7 @@ ttspeak voices                               # preset + cloned voices
 ttspeak voice add NAME --audio ref.wav --text "transcript" --model qwen3:0.6b-base
 ttspeak voice rm NAME
 ttspeak voice prune --keep NAME --yes         # remove undeclared profiles
+ttspeak config set language auto
 ttspeak config set voice de_male
 ttspeak config list
 ttspeak runtime install
@@ -217,10 +242,10 @@ ttspeak doctor
 | Flag | Meaning |
 |---|---|
 | `-m, --model ID` | Model id (default: `voxtral:4b`). |
-| `--voice NAME` | Preset voice or cloned profile (`@name` forces profile lookup). |
+| `-v, --voice NAME` | Language alias (`de`, `en`, `ru`), concrete voice (`de_male`) or cloned profile (`@name`). |
 | `--emotion NAME` | Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`. |
 | `--instruct TEXT` | Qwen3 only: free-form style instruction, combined with `--emotion`. |
-| `--language LANG` | `de`/`German`, `en`/`English`, `ru`/`Russian`, … (model-dependent). |
+| `--language LANG` | `auto` (default) or `de`/`German`, `en`/`English`, `ru`/`Russian`, … (model-dependent). |
 | `--speed FLOAT` | `0.5` … `2.0` (model-dependent). |
 | `--engine mlx\|mock` | Backend. `mock` writes a tone without MLX. |
 | `--json` | Machine-readable result. |
@@ -228,14 +253,40 @@ ttspeak doctor
 `save` requires `-o/--output` and `-t/--text`. Formats: WAV, MP3, FLAC, OGG,
 Opus, M4A. `--play` plays the finished file after writing.
 
+### Automatic language detection
+
+`--language auto` is the default. Input is split into sentences (and Cyrillic/Latin
+script runs) and each segment is detected as German, English or Russian. Each
+detected language uses its own configured voice and model. Unknown Latin text falls
+back to German.
+
+```console
+# One save file, three voices/models
+ttspeak save -o mixed.mp3 -t "Guten Abend. Good evening. Добрый вечер."
+
+# One live listening stream, sequential per segment
+ttspeak live "Guten Abend. Good evening. Добрый вечер."
+
+# Force one configured voice for the whole input
+ttspeak live "Guten Abend. Good evening." -v de
+
+# Force one language and its configured voice
+ttspeak live "Good evening." --language en
+```
+
+`save` always writes **one** file. `live` always plays **one** sequential stream;
+model changes between segments can cause a short loading gap. For a single-language
+input there is no extra segmentation.
+
 Examples:
 
 ```console
 ttspeak live "Das ist unglaublich!" --emotion excited       # Qwen3 model
-ttspeak live "Willkommen zurück." --voice de_female
-ttspeak save -o willkommen.mp3 -t "Willkommen zurück." --voice de_female
+ttspeak live "Willkommen zurück." -v de
+ttspeak live "Willkommen zurück." -v de_male
+ttspeak save -o willkommen.mp3 -t "Willkommen zurück." -v de
 ttspeak save -o hallo.wav -t "Hallo"                        # save only, no playback
-ttspeak live "Hallo" --voice @lukas
+ttspeak live "Hallo" -v @lukas
 ```
 
 Without `-o`, audio is streamed to the speakers as it is generated. With `-o`, the

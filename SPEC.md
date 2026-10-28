@@ -55,10 +55,10 @@ $ ttspeak rm voxtral:4b
 ### Flags for synthesis
 
 - `-m, --model ID`
-- `--voice NAME` — preset speaker or cloned profile (a leading `@` forces profile lookup)
+- `-v, --voice NAME` — language alias (`de`, `en`, `ru`), preset speaker, or cloned profile (a leading `@` forces profile lookup)
 - `--emotion PRESET` — Qwen3 only: `neutral`, `happy`, `sad`, `angry`, `excited`, `calm`, `serious`, `whisper`
 - `--instruct TEXT` — Qwen3 only: free-form style instruction (combines with `--emotion`)
-- `--language NAME|CODE` — `de`/`German`, `en`/`English`, `ru`/`Russian`, …
+- `--language LANG` — `auto` (default), `de`/`German`, `en`/`English`, `ru`/`Russian`, …
 - `--speed FLOAT` — 0.5–2.0
 - `save`: `-o, --output PATH` and `-t, --text TEXT` are required; `--play` is optional
 - `live`/`run`: no output path; audio streams live
@@ -90,11 +90,46 @@ CLI flag > environment > user config (`config.json`) > declarative defaults
 (`$TTSPEAK_DEFAULTS`, written by Home Manager) > built-in defaults.
 
 Environment: `TTSPEAK_HOME`, `TTSPEAK_DEFAULTS`, `TTSPEAK_MODEL`, `TTSPEAK_VOICE`,
-`TTSPEAK_LANGUAGE`, `TTSPEAK_EMOTION`, `TTSPEAK_SPEED`, `TTSPEAK_ENGINE`,
-`TTSPEAK_PYTHON`, `TTSPEAK_REGISTRY`, `HF_TOKEN`.
+`TTSPEAK_LANGUAGE`, `TTSPEAK_DEFAULT_GENDER`, `TTSPEAK_VOICES`, `TTSPEAK_EMOTION`,
+`TTSPEAK_SPEED`, `TTSPEAK_ENGINE`, `TTSPEAK_PYTHON`, `TTSPEAK_REGISTRY`, `HF_TOKEN`.
 
-Built-in defaults: model `voxtral:4b`, voice = model default (`de_female` for
-Voxtral), language `German`, speed `1.0`, play enabled.
+Built-in defaults: model `voxtral:4b`, language `auto`, default gender `female`,
+empty `voices`, speed `1.0`, play enabled. With no configured language voice, the
+model default voice is used.
+
+### Per-language voices
+
+`voices` is a flat alias map in declarative/user config:
+
+```json
+{
+  "voices": {
+    "de": "de_female",
+    "de_female": { "model": "voxtral:4b", "voice": "de_female" },
+    "de_male": { "model": "voxtral:4b", "voice": "de_male" },
+    "en": "en_female",
+    "en_female": { "model": "voxtral:4b", "voice": "it_female" },
+    "ru": "ru_female",
+    "ru_female": { "model": "qwen3:1.7b", "voice": "Sohee" }
+  }
+}
+```
+
+A string value is an alias; an object value is the concrete model/voice. The chain
+is `de -> de_female -> { model, voice }`. If `de` is absent, the generic fallback is
+`de_<default_gender>`. `default_gender` is only a fallback, not a global rule.
+
+### Language detection and multi-segment input
+
+`language = "auto"` splits input at sentence boundaries and Cyrillic/Latin script
+runs, detects `de`, `en` or `ru`, and resolves each segment through the per-language
+voice map. Unknown Latin text falls back to German. An explicit `--language` (or
+`--voice`) forces one language/voice for the whole input.
+
+`save` synthesizes all segments and writes exactly **one** output file (PCM segments
+are concatenated before transcoding). `live` plays exactly **one** sequential stream;
+no intermediate files are kept. A model change between segments may cause a short
+loading gap.
 
 ## Backends
 
@@ -143,7 +178,8 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 - `devShells.<system>.default` — Python, pytest, uv, ruff and ffmpeg.
 - `homeManagerModules.default` — `programs.ttspeak`:
   - installs the package and ffmpeg (optional, default on),
-  - writes declarative defaults from `settings` via `TTSPEAK_DEFAULTS`,
+  - writes declarative defaults from `settings` via `TTSPEAK_DEFAULTS`
+    (scalars and nested `voices` attrsets are supported),
   - pulls `models` on activation (idempotent, non-fatal warnings),
   - optionally creates `voices.<name>` profiles from reference audio and pulls
     their base models,
@@ -168,6 +204,14 @@ checks sizes and (for LFS files) SHA-256, then renames the temp directory into p
 10. `ttspeak save -o out.mp3 -t ...` is non-streaming and transcodes via ffmpeg;
     missing ffmpeg fails before model loading.
 11. `ttspeak "Hallo"` is rejected with a hint to use `live` or `save`.
+12. `language = "auto"` detects de/en/ru per sentence and mixed-script runs.
+13. A mixed-language `save` writes exactly one file; a mixed-language `live` plays
+    one sequential stream and writes no file.
+14. `de -> de_female -> { model, voice }`, `en -> en_female -> …` and
+    `ru -> ru_female -> …` resolve from the config; `-v de`/`de_male` forces one
+    configured voice.
+15. Home Manager `settings.voices` accepts nested attrsets and is exported through
+    `TTSPEAK_DEFAULTS` without losing the mapping.
 
 ## Boundaries
 

@@ -74,25 +74,29 @@ in
     };
 
     settings = lib.mkOption {
-      type = lib.types.attrsOf (
-        lib.types.nullOr (
-          lib.types.oneOf [
-            lib.types.str
-            lib.types.bool
-            lib.types.int
-            lib.types.float
-          ]
-        )
-      );
+      type = lib.types.attrsOf lib.types.anything;
       default = { };
       example = {
-        model = "qwen3:0.6b";
-        voice = "Serena";
-        language = "German";
+        model = "voxtral:4b";
+        language = "auto";
+        default_gender = "female";
+        voices = {
+          de = "de_female";
+          de_female = {
+            model = "voxtral:4b";
+            voice = "de_female";
+          };
+          ru = "ru_female";
+          ru_female = {
+            model = "qwen3:1.7b";
+            voice = "Sohee";
+          };
+        };
         speed = 1.0;
       };
       description = ''
-        Declarative defaults, exported through TTSPEAK_DEFAULTS. The mutable user
+        Declarative defaults, exported through TTSPEAK_DEFAULTS. Values may be
+        scalars, lists or nested attrsets (for `voices`). The mutable user
         configuration (`ttspeak config set`) still takes precedence.
       '';
     };
