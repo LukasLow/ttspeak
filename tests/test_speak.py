@@ -442,6 +442,22 @@ def test_auto_segments_use_configured_voices_and_one_file(env, tmp_path, monkeyp
     assert result.result.duration > 0
 
 
+def test_single_russian_word_uses_configured_ru_voice(env, tmp_path, monkeypatch):
+    _configured_voices(monkeypatch, tmp_path, _voice_defaults())
+    result = speak(
+        SpeakOptions(
+            text="Когда",
+            play=False,
+            output=str(tmp_path / "ru.wav"),
+            engine="mock",
+        )
+    )
+    assert result.languages == ["Russian"]
+    assert result.segments[0].plan.spec.id == "fake:custom"
+    assert result.segments[0].plan.voice_alias == "ru_female"
+    assert result.segments[0].plan.speaker == "Serena"
+
+
 def test_explicit_voice_alias_forces_one_voice(env, tmp_path, monkeypatch):
     _configured_voices(monkeypatch, tmp_path, _voice_defaults())
     result = speak(
