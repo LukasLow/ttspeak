@@ -211,7 +211,7 @@ def print_report(
     loud_starts = [
         item
         for item in boundaries
-        if item["delta_db"] >= min_step and item["seconds"] <= max_gap
+        if item["delta_db"] >= min_step and item["seconds"] <= max_gap + 1e-9
     ]
     print()
     print(
@@ -254,7 +254,7 @@ def build_html(
     loud_starts = [
         item
         for item in boundaries
-        if item["delta_db"] >= min_step and item["seconds"] <= max_gap
+        if item["delta_db"] >= min_step and item["seconds"] <= max_gap + 1e-9
     ]
     width, height, pad = 1400, 380, 44
     plot_width = width - 2 * pad
@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-gap",
         type=float,
-        default=0.30,
+        default=0.60,
         help="maximum silence-gap length in seconds for a chunk-start candidate",
     )
     args = parser.parse_args(argv)
@@ -355,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     loud_starts = [
         item
         for item in boundaries
-        if item["delta_db"] >= args.min_step and item["seconds"] <= args.max_gap
+        if item["delta_db"] >= args.min_step and item["seconds"] <= args.max_gap + 1e-9
     ]
 
     print_report(
