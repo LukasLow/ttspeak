@@ -458,6 +458,22 @@ def test_single_russian_word_uses_configured_ru_voice(env, tmp_path, monkeypatch
     assert result.segments[0].plan.speaker == "Serena"
 
 
+def test_configured_language_voice_beats_legacy_scalar_voice(env, tmp_path, monkeypatch):
+    defaults = _voice_defaults()
+    defaults["voice"] = "de_female"
+    _configured_voices(monkeypatch, tmp_path, defaults)
+    result = speak(
+        SpeakOptions(
+            text="Когда",
+            play=False,
+            output=str(tmp_path / "ru-legacy.wav"),
+            engine="mock",
+        )
+    )
+    assert result.segments[0].plan.voice_alias == "ru_female"
+    assert result.segments[0].plan.speaker == "Serena"
+
+
 def test_explicit_voice_alias_forces_one_voice(env, tmp_path, monkeypatch):
     _configured_voices(monkeypatch, tmp_path, _voice_defaults())
     result = speak(

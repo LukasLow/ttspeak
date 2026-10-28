@@ -249,7 +249,7 @@ def _build_plans(
         name = normalize_language(language_value)
         raw_segments = [LanguageSegment(text=text, code=_CODE_BY_NAME[name])]
 
-    forced_value = options.voice if options.voice is not None else settings.get("voice")
+    forced_value = options.voice
     forced_choice = None
     if forced_value:
         forced_choice = _explicit_choice(options, settings, str(forced_value))
