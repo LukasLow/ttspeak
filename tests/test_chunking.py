@@ -5,6 +5,23 @@ def test_short_text_is_one_chunk():
     assert split_text("Hallo Welt.", max_chars=1000) == ["Hallo Welt."]
 
 
+def test_paragraphs_are_kept_as_separate_chunks():
+    paragraphs = [
+        ("Erster Absatz. " * 18).strip(),
+        ("Zweiter Absatz. " * 18).strip(),
+        ("Dritter Absatz. " * 18).strip(),
+    ]
+    chunks = split_text("\n\n".join(paragraphs), max_chars=300)
+    assert chunks == paragraphs
+
+
+def test_tiny_title_is_merged_with_next_paragraph():
+    text = "Ein Tag\n\nDer eigentliche Text beginnt hier und ist deutlich länger."
+    chunks = split_text(text, max_chars=1000)
+    assert len(chunks) == 1
+    assert "Ein Tag" in chunks[0]
+
+
 def test_long_text_is_split_at_paragraphs_and_sentences():
     paragraphs = [
         "Der erste Absatz ist kurz.",

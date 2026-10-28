@@ -6,6 +6,7 @@ import re
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n+")
+MIN_PARAGRAPH_CHARS = 200
 
 
 def _split_long_sentence(sentence: str, max_chars: int) -> list[str]:
@@ -35,10 +36,11 @@ def _paragraph_sentences(paragraph: str, max_chars: int) -> list[str]:
 
 
 def split_text(text: str, max_chars: int = 1000) -> list[str]:
-    """Return chunks no longer than ``max_chars`` where possible.
+    """Split at paragraph boundaries, then sentences for oversized paragraphs.
 
-    Paragraph boundaries are preferred, then sentence boundaries, then word
-    boundaries. The original words and punctuation are preserved.
+    Paragraphs are kept as separate chunks whenever possible. Very short
+    paragraphs (for example a title) are merged with the following paragraph so
+    they do not create a tiny one-word chunk.
     """
     if max_chars < 10:
         raise ValueError("max_chars must be at least 10")
@@ -48,26 +50,43 @@ def split_text(text: str, max_chars: int = 1000) -> list[str]:
     if len(stripped) <= max_chars:
         return [stripped]
 
-    paragraphs = [part.strip() for part in _PARAGRAPH_SPLIT_RE.split(stripped) if part.strip()]
+    raw_paragraphs = [
+        part.strip() for part in _PARAGRAPH_SPLIT_RE.split(stripped) if part.strip()
+    ]
+    paragraphs: list[str] = []
+    buffer = ""
+    for paragraph in raw_paragraphs:
+        if buffer:
+            buffer = f"{buffer}\n\n{paragraph}"
+            if len(buffer) >= MIN_PARAGRAPH_CHARS:
+                paragraphs.append(buffer)
+                buffer = ""
+        elif len(paragraph) < MIN_PARAGRAPH_CHARS:
+            buffer = paragraph
+        else:
+            paragraphs.append(paragraph)
+    if buffer:
+        if paragraphs:
+            paragraphs[-1] = f"{paragraphs[-1]}\n\n{buffer}"
+        else:
+            paragraphs.append(buffer)
+
     chunks: list[str] = []
-    current = ""
-
-    def flush() -> None:
-        nonlocal current
-        if current:
-            chunks.append(current)
-            current = ""
-
     for paragraph in paragraphs:
-        pieces = _paragraph_sentences(paragraph, max_chars)
-        for piece in pieces:
+        if len(paragraph) <= max_chars:
+            chunks.append(paragraph)
+            continue
+        current = ""
+        for piece in _paragraph_sentences(paragraph, max_chars):
             candidate = f"{current} {piece}".strip()
             if current and len(candidate) > max_chars:
-                flush()
+                chunks.append(current)
                 current = piece
             else:
                 current = candidate
             if len(current) >= max_chars:
-                flush()
-    flush()
+                chunks.append(current)
+                current = ""
+        if current:
+            chunks.append(current)
     return chunks
