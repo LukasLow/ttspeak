@@ -308,6 +308,7 @@ class MlxEngine:
             "speed": request.speed,
             "ref_audio": str(request.ref_audio) if request.ref_audio else None,
             "ref_text": request.ref_text,
+            "chunk_chars": request.chunk_chars,
         }
         write_json(request_path, payload)
 

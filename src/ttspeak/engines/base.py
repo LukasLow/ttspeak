@@ -20,6 +20,7 @@ class SynthesisRequest:
     ref_audio: Path | None = None
     ref_text: str | None = None
     stream: bool = False
+    chunk_chars: int = 1000
 
 
 @dataclass

@@ -17,6 +17,8 @@ import wave
 from pathlib import Path
 from typing import Any
 
+from chunking import split_text
+
 
 def log(message: str) -> None:
     print(f"[mlx] {message}", file=sys.stderr, flush=True)
@@ -39,7 +41,12 @@ def supported_call(function, kwargs: dict[str, Any]):
     return function(**clean)
 
 
-def _stream_play(function, kwargs: dict[str, Any], model) -> dict[str, Any]:
+def _stream_play(
+    function,
+    kwargs: dict[str, Any],
+    model,
+    texts: list[str],
+) -> dict[str, Any]:
     """Generate with stream=True and write chunks to the default audio device."""
     import numpy as np
     import sounddevice as sd
@@ -50,29 +57,36 @@ def _stream_play(function, kwargs: dict[str, Any], model) -> dict[str, Any]:
     chunks = 0
     sample_rate = int(getattr(model, "sample_rate", None) or 24000)
     first_chunk_seconds: float | None = None
+    gap = np.zeros(0, dtype=np.float32)
 
     try:
-        for result in supported_call(function, kwargs):
-            data = np.asarray(result.audio, dtype=np.float32).reshape(-1)
-            if data.size == 0:
-                continue
-            if output_stream is None:
-                sample_rate = int(
-                    getattr(result, "sample_rate", None)
-                    or getattr(model, "sample_rate", None)
-                    or 24000
-                )
-                output_stream = sd.OutputStream(
-                    samplerate=sample_rate,
-                    channels=1,
-                    dtype="float32",
-                )
-                output_stream.start()
-                first_chunk_seconds = time.monotonic() - start
-                log(f"first audio after {first_chunk_seconds:.2f}s")
-            output_stream.write(data.reshape(-1, 1))
-            total_samples += data.size
-            chunks += 1
+        for index, text in enumerate(texts):
+            chunk_kwargs = {**kwargs, "text": text}
+            for result in supported_call(function, chunk_kwargs):
+                data = np.asarray(result.audio, dtype=np.float32).reshape(-1)
+                if data.size == 0:
+                    continue
+                if output_stream is None:
+                    sample_rate = int(
+                        getattr(result, "sample_rate", None)
+                        or getattr(model, "sample_rate", None)
+                        or 24000
+                    )
+                    output_stream = sd.OutputStream(
+                        samplerate=sample_rate,
+                        channels=1,
+                        dtype="float32",
+                    )
+                    output_stream.start()
+                    first_chunk_seconds = time.monotonic() - start
+                    gap = np.zeros(int(0.12 * sample_rate), dtype=np.float32)
+                    log(f"first audio after {first_chunk_seconds:.2f}s")
+                output_stream.write(data.reshape(-1, 1))
+                total_samples += data.size
+                chunks += 1
+            if output_stream is not None and index < len(texts) - 1 and gap.size:
+                output_stream.write(gap.reshape(-1, 1))
+                total_samples += gap.size
     except sd.PortAudioError as exc:
         raise RuntimeError(
             "Live audio output failed. Use `--no-play -o out.wav` to write a file instead. "
@@ -100,7 +114,6 @@ def _stream_play(function, kwargs: dict[str, Any], model) -> dict[str, Any]:
 
 
 def synthesize(request: dict[str, Any]) -> dict[str, Any]:
-    import mlx.core as mx
     import numpy as np
     from mlx_audio.tts.utils import load_model
 
@@ -165,35 +178,46 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
     if function is None:
         raise AttributeError(f"Model {type(model).__name__} has no method for '{method}'")
 
-    log(f"generating {len(text)} characters ...")
+    chunk_chars = int(request.get("chunk_chars") or 0)
+    texts = split_text(text, max_chars=chunk_chars) if chunk_chars > 0 else [text]
+    if not texts:
+        texts = [text]
+
+    log(f"generating {len(text)} characters in {len(texts)} chunk(s) ...")
     if stream:
         kwargs["stream"] = True
         kwargs["streaming_interval"] = 0.32
-        return _stream_play(function, kwargs, model)
+        return _stream_play(function, kwargs, model, texts)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    results = list(supported_call(function, kwargs))
-    if not results:
-        raise RuntimeError("The model returned no audio.")
+    pieces: list[Any] = []
+    results = []
+    sample_rate = int(getattr(model, "sample_rate", None) or 24000)
+    gap = None
+    for index, chunk in enumerate(texts):
+        log(f"chunk {index + 1}/{len(texts)} ({len(chunk)} characters) ...")
+        chunk_kwargs = {**kwargs, "text": chunk}
+        chunk_results = list(supported_call(function, chunk_kwargs))
+        if not chunk_results:
+            raise RuntimeError("The model returned no audio.")
+        results.extend(chunk_results)
+        for result in chunk_results:
+            audio = np.asarray(result.audio, dtype=np.float32).reshape(-1)
+            if audio.size == 0:
+                continue
+            sample_rate = int(getattr(result, "sample_rate", None) or sample_rate)
+            if pieces and index > 0:
+                if gap is None or gap.size != int(0.12 * sample_rate):
+                    gap = np.zeros(int(0.12 * sample_rate), dtype=np.float32)
+                pieces.append(gap)
+            pieces.append(np.clip(audio, -1.0, 1.0))
 
-    chunks = [result.audio for result in results if getattr(result.audio, "size", 0) > 0]
-    if not chunks:
+    if not pieces:
         raise RuntimeError("The model returned only empty audio chunks.")
 
-    if len(chunks) > 1:
-        audio = mx.concatenate(chunks, axis=0)
-    else:
-        audio = chunks[0]
-
-    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
-    samples = np.clip(samples, -1.0, 1.0)
+    samples = np.concatenate(pieces).reshape(-1)
     pcm = (samples * 32767.0).astype(np.int16)
 
-    sample_rate = int(
-        getattr(results[0], "sample_rate", None)
-        or getattr(model, "sample_rate", None)
-        or 24000
-    )
     with wave.open(str(output), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -212,7 +236,7 @@ def synthesize(request: dict[str, Any]) -> dict[str, Any]:
         "output": str(output),
         "duration": duration,
         "sample_rate": sample_rate,
-        "chunks": len(chunks),
+        "chunks": len(results),
         "streamed": False,
         "real_time_factor": float(rtf) if rtf is not None else None,
         "processing_time_seconds": float(processing) if processing is not None else None,
